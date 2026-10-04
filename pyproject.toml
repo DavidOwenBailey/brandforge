@@ -1,0 +1,19 @@
+[project]
+name = "brandforge"
+version = "0.1.0.dev0"
+description = "Multi-agent pipeline that turns creative briefs into on-brand ad copy."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "David Owen Bailey" }
+]
+requires-python = ">=3.12,<3.14"
+dependencies = []
+
+[project.scripts]
+brandforge = "brandforge:main"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"

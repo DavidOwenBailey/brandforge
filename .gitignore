@@ -1,0 +1,39 @@
+# Secrets — never commit real keys
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments (uv creates .venv)
+.venv/
+venv/
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime data (Chroma index, LangGraph checkpoints)
+data/
+*.sqlite
+*.sqlite3
+*.db
+chroma/
+
+# Evaluation scratch output (committed summaries live in evals/results/)
+.promptfoo/
+evals/output/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
