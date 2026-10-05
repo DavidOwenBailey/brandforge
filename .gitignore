@@ -27,6 +27,7 @@ data/
 *.sqlite3
 *.db
 chroma/
+.brandforge/
 
 # Evaluation scratch output (committed summaries live in evals/results/)
 .promptfoo/
