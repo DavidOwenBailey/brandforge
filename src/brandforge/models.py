@@ -1,6 +1,7 @@
 """Pydantic data contracts for every boundary in BrandForge."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
+from uuid import uuid4
 
 from pydantic import (
     BaseModel,
@@ -100,9 +101,85 @@ class Usage(_Contract):
         return self.input_tokens + self.output_tokens
 
     def __add__(self, other: "Usage") -> "Usage":
-        # Used later as the reducer that accumulates usage across nodes.
+        # The reducer that accumulates usage across nodes (see `RunState`).
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             cost_usd=self.cost_usd + other.cost_usd,
         )
+
+
+class Plan(_Contract):
+    """The planner's structured reading of a brief (written by the planner, BF-13)."""
+
+    audience: NonEmptyStr
+    angle: NonEmptyStr
+    channels: list[Channel] = Field(min_length=1)
+    variants_per_channel: int = Field(ge=1, le=10)
+
+
+class Example(_Contract):
+    """An approved piece of copy retrieved as a style reference (written by BF-31)."""
+
+    brand_id: NonEmptyStr
+    channel: Channel
+    headline: NonEmptyStr
+    body: str
+    cta: NonEmptyStr
+
+
+class RunError(_Contract):
+    """A failure recorded in state so the run can still end in a defined status."""
+
+    node: NonEmptyStr
+    message: NonEmptyStr
+
+
+RunStatus = Literal["running", "complete", "partial", "failed"]
+
+
+def add_usage(left: Usage, right: Usage) -> Usage:
+    """LangGraph reducer: nodes return the usage of their own calls, state keeps the sum."""
+    return left + right
+
+
+def add_errors(left: list[RunError], right: list[RunError]) -> list[RunError]:
+    """LangGraph reducer: nodes append errors rather than overwrite earlier ones."""
+    return [*left, *right]
+
+
+class RunState(TypedDict):
+    """The single source of truth for one run.
+
+    Agents return only the keys they own. `usage` and `errors` carry reducers, so a node
+    returns just its own usage or its new errors and the graph accumulates them.
+    """
+
+    run_id: str
+    brief: Brief
+    brand: BrandProfile
+    plan: Plan | None
+    examples: list[Example]
+    variants: list[Variant]
+    critiques: list[Critique]
+    revision_count: int
+    errors: Annotated[list[RunError], add_errors]
+    usage: Annotated[Usage, add_usage]
+    status: RunStatus
+
+
+def new_run_state(brief: Brief, brand: BrandProfile, *, run_id: str | None = None) -> RunState:
+    """The initial state for a run: inputs filled in, everything else empty."""
+    return RunState(
+        run_id=run_id or uuid4().hex,
+        brief=brief,
+        brand=brand,
+        plan=None,
+        examples=[],
+        variants=[],
+        critiques=[],
+        revision_count=0,
+        errors=[],
+        usage=Usage(),
+        status="running",
+    )
