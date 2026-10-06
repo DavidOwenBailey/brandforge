@@ -1,6 +1,6 @@
 """Typer CLI: `brandforge generate --brand X --brief brief.yaml`.
 
-For now `generate` runs the single-prompt baseline (BF-09). BF-12 switches it to the graph.
+`generate` runs the brief through the LangGraph pipeline (`brandforge.graph`).
 """
 
 from pathlib import Path
@@ -11,8 +11,8 @@ import yaml
 from pydantic import ValidationError
 
 from brandforge import __version__
-from brandforge.baseline import generate_baseline
 from brandforge.brands import BrandLoadError, load_brand
+from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
 from brandforge.models import Brief, Usage, Variant
 
@@ -103,10 +103,10 @@ def generate(
         _fail(str(exc))
 
     try:
-        variants, usage = generate_baseline(brief_model, brand_profile)
+        state = run_graph(brief_model, brand_profile)
     except (GatewayError, FileNotFoundError) as exc:
         _fail(f"generation failed: {exc}")
 
-    typer.echo(format_variants(variants))
+    typer.echo(format_variants(state["variants"]))
     typer.echo("")
-    typer.echo(format_usage(usage))
+    typer.echo(format_usage(state["usage"]))

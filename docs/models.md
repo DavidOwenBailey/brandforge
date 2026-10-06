@@ -12,6 +12,10 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 | **Variant** | One piece of ad copy: channel, headline, body and call to action. | Writer, reviser | Critic, assembler |
 | **Critique** | The critic's verdict on one variant: per-criterion scores (1 to 5), overall score, pass/fail and fix notes. | Critic | Router, reviser, assembler |
 | **Usage** | Token counts and cost. Supports `+` so it can accumulate across nodes. | LLM gateway | Run state, assembler, cost reporting |
+| **Plan** | The planner's reading of a brief: audience, angle, channels and variants per channel. | Planner (BF-13) | Writer |
+| **Example** | An approved piece of copy for a brand, retrieved as a style reference. | Retriever (BF-31) | Writer |
+| **RunError** | A failure recorded in state (node and message), so a run can still end in a defined status. | Any node (BF-22) | Assembler |
+| **RunState** | The `TypedDict` that is the single source of truth for a run. `usage` and `errors` carry reducers (`add_usage`, `add_errors`), so a node returns only its own usage or new errors and the graph accumulates them. `new_run_state` builds the initial state. | Graph entry point | Every node |
 
 ### **How they flow**
 
@@ -29,7 +33,6 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 * **Modifiability.** Agents depend on these contracts, not on each other, so one can be swapped without touching the rest.  
 * **Reproducibility.** The profile version travels with the result, so an eval run can be tied to the exact brand configuration it used.
 
-### **Not yet defined**
+### **The graph shell (`graph.py`)**
 
-`Plan`, `Example`, `RunError` and the `RunState` TypedDict (with reducers for usage and errors) arrive with the graph shell and planner (BF-12, BF-13). They will build on the models above.
-
+`build_graph()` compiles a LangGraph `StateGraph` over `RunState`, and `run_graph(brief, brand)` runs one brief and returns the final state. Until the planner, writer and critic land (BF-13 to BF-18) the graph has a single `baseline` node that wraps `generate_baseline`, so `brandforge generate` keeps working end to end through the graph. Errors from the node still propagate; BF-22 turns them into recorded `RunError`s and a `partial` or `failed` status.

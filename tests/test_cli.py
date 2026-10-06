@@ -1,11 +1,11 @@
-"""CLI tests. The model is faked by replacing `generate_baseline` in the CLI module."""
+"""CLI tests. The model is faked by replacing `generate_baseline` in the graph module."""
 
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from brandforge import __version__
+from brandforge import __version__, graph
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
 from brandforge.models import BrandProfile, Brief, Usage, Variant
@@ -57,7 +57,7 @@ def brief_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeGenerate:
     fake = FakeGenerate()
-    monkeypatch.setattr(cli, "generate_baseline", fake)
+    monkeypatch.setattr(graph, "generate_baseline", fake)
     return fake
 
 
@@ -134,7 +134,9 @@ def test_gateway_error_is_reported_not_raised(
     monkeypatch: pytest.MonkeyPatch, brief_file: Path
 ) -> None:
     monkeypatch.setattr(
-        cli, "generate_baseline", FakeGenerate(GatewayConfigError("ANTHROPIC_API_KEY is not set."))
+        graph,
+        "generate_baseline",
+        FakeGenerate(GatewayConfigError("ANTHROPIC_API_KEY is not set.")),
     )
 
     result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
