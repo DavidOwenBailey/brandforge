@@ -44,6 +44,29 @@ class ModelTiers(BaseModel):
         return parse_model_ref(getattr(self, tier))
 
 
+class TierPrice(BaseModel):
+    """USD per million tokens for the model currently assigned to a tier."""
+
+    input_per_mtok: float = Field(ge=0)
+    output_per_mtok: float = Field(ge=0)
+
+
+class Pricing(BaseModel):
+    """Tier -> price. Change a tier's model and its price together.
+
+    Defaults match Anthropic's published base prices for the default tiers.
+    Cache read/write pricing is out of scope until prompt caching lands (BF-27).
+    """
+
+    strong: TierPrice = TierPrice(input_per_mtok=2.0, output_per_mtok=10.0)
+    fast: TierPrice = TierPrice(input_per_mtok=1.0, output_per_mtok=5.0)
+    judge: TierPrice = TierPrice(input_per_mtok=4.0, output_per_mtok=20.0)
+
+    def for_tier(self, tier: Tier) -> TierPrice:
+        price: TierPrice = getattr(self, tier)
+        return price
+
+
 class Budgets(BaseModel):
     """Hard limits so every run is bounded."""
 
@@ -51,6 +74,8 @@ class Budgets(BaseModel):
     max_wall_clock_seconds: int = Field(default=90, gt=0)
     max_revisions: int = Field(default=2, ge=0)
     max_llm_retries: int = Field(default=3, ge=1)
+    max_output_tokens_per_call: int = Field(default=2_048, gt=0)
+    request_timeout_seconds: float = Field(default=60.0, gt=0)
 
 
 class Thresholds(BaseModel):
@@ -73,6 +98,7 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = Field(
         default=SecretStr(""), validation_alias="ANTHROPIC_API_KEY"
     )
+    gemini_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="GEMINI_API_KEY")
     openai_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="OPENAI_API_KEY")
     langfuse_public_key: SecretStr = Field(
         default=SecretStr(""), validation_alias="LANGFUSE_PUBLIC_KEY"
@@ -86,6 +112,7 @@ class Settings(BaseSettings):
 
     # Behaviour
     models: ModelTiers = ModelTiers()
+    pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()
     thresholds: Thresholds = Thresholds()
     retrieval_enabled: bool = True  # used by BF-32
