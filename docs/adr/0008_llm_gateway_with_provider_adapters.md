@@ -41,11 +41,12 @@ outcome: complete, truncated or refused). It does not validate, cost, retry or
 trace. Its SDK is imported only inside the adapter, and only when a tier points at
 that provider.
 
-The first adapter is Anthropic, over the Messages API with a JSON-schema output
-config and the SDK's own retries switched off (`max_retries=0`), so retry policy
-lives in the core. Gemini is next; OpenAI only if time allows. Adding a provider
-means an adapter module, a branch in `brandforge.llm.registry`, an API-key setting
-and per-tier prices.
+Two adapters exist. Anthropic uses the Messages API with a JSON-schema output config
+and the SDK's own retries switched off (`max_retries=0`). Gemini uses
+`generate_content` with `response_json_schema`; the SDK does not retry unless asked,
+so none is configured. In both, retry policy lives in the core. OpenAI is added only
+if time allows. Adding a provider means an adapter module, a branch in
+`brandforge.llm.registry`, an API-key setting and per-tier prices.
 
 ## Alternatives considered
 
@@ -69,21 +70,24 @@ and per-tier prices.
 ## Consequences
 
 - **Gained:** one place for validation, cost, retries, budgets and tracing; agents
-  stay pure functions; a provider's SDK is only imported, and only required, when a
-  tier uses it; the core is tested with a fake adapter and each adapter with a fake
+  stay pure functions; a provider's SDK is imported only when a tier uses it; the core is tested with a fake adapter and each adapter with a fake
   SDK client, so no test needs a network or a key.
 - **Trade-off accepted:** we own the glue that an agent framework or library would
   provide, and adapters must be kept behaviourally aligned. Langfuse tracing will
   hook into the core (BF-25) rather than LangChain callbacks.
-- **Known limitation:** only the Anthropic adapter exists. A tier set to `gemini` or
+- **Known limitation:** only the Anthropic and Gemini adapters exist. A tier set to
   `openai` raises `GatewayConfigError` listing the available providers.
 - **Known limitation:** response schemas must use lists of items, never free-form
   `dict` fields, because strict structured-output modes cannot express unknown keys
   (for example `Critique.scores`). The core enforces this for every provider. The
   critic (BF-15) uses a list of `{criterion, score}` items and converts it in code.
-  Further per-provider schema limits are checked inside each adapter; Gemini's and
-  OpenAI's have not been verified yet.
-- **Known limitation:** only input and output tokens are priced. Prompt-cache and
-  reasoning-token accounting differ by provider and arrive with BF-27.
+  Further per-provider schema limits are handled inside each adapter: Anthropic's
+  transform errors become `GatewayConfigError`, and the Gemini adapter reduces the
+  schema to the keywords Gemini supports (dropping, for example, `minLength` and
+  `default`) because the core validates every reply anyway. OpenAI's limits have not
+  been verified yet.
+- **Known limitation:** only input and output tokens are priced. Gemini thinking
+  tokens are counted as output, which is how Gemini bills them. Prompt-cache pricing
+  differs by provider and arrives with BF-27.
 - **Known limitation:** provider SDK errors pass through unchanged until BF-20
   maps them to gateway errors inside each adapter.
