@@ -200,18 +200,24 @@ def test_unsupported_schema_rejected_before_any_call() -> None:
     assert adapter.calls == []
 
 
-@pytest.mark.parametrize("provider", ["openai", "gemini"])
-def test_provider_without_adapter_rejected(provider: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BRANDFORGE_MODELS__FAST", f"{provider}:some-model")
+def test_provider_without_adapter_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_MODELS__FAST", "openai:some-model")
 
-    with pytest.raises(GatewayConfigError, match=f"{provider}.*Available: anthropic"):
+    with pytest.raises(GatewayConfigError, match=r"openai.*Available: anthropic, gemini"):
         complete_structured("p", Variant, "fast", settings=IsolatedSettings())
 
 
-def test_missing_api_key_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+@pytest.mark.parametrize(
+    ("provider", "key_variable"),
+    [("anthropic", "ANTHROPIC_API_KEY"), ("gemini", "GEMINI_API_KEY")],
+)
+def test_missing_api_key_fails_fast(
+    provider: str, key_variable: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_MODELS__FAST", f"{provider}:some-model")
+    monkeypatch.delenv(key_variable, raising=False)
 
-    with pytest.raises(GatewayConfigError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(GatewayConfigError, match=key_variable):
         complete_structured("p", Variant, "fast", settings=IsolatedSettings())
 
 
