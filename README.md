@@ -17,7 +17,7 @@ git clone https://github.com/DavidOwenBailey/brandforge.git
 cd brandforge
 uv sync
 cp .env.example .env   # then add your ANTHROPIC_API_KEY
-uv run brandforge generate --brand voltride --brief path/to/brief.yaml
+uv run brandforge generate --brand voltride --brief src/brandforge/briefs/voltride_01_commuter_ebike.yaml
 ```
 
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.

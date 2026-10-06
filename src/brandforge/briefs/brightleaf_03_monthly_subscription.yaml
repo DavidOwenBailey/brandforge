@@ -1,0 +1,7 @@
+product: Monthly tea subscription
+audience: existing customers who reorder a couple of times a year
+objective: conversion
+channels: [email, social]
+constraints:
+  - do not mention price
+  - no urgency or countdown language
