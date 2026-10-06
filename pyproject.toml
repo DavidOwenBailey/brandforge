@@ -50,6 +50,7 @@ files = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["live: calls a real model provider; runs only when BRANDFORGE_LIVE=1"]
 
 [tool.poe.tasks]
 lint = ["_ruff-check", "_ruff-format-check"]
