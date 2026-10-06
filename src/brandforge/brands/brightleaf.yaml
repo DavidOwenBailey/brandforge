@@ -1,0 +1,39 @@
+id: brightleaf
+version: "1.0"
+voice: [warm, plain-spoken, gently playful]
+do:
+  - Talk like a friendly neighbour who knows tea
+  - Use concrete sensory detail (steam, scent, first sip)
+  - Keep sentences short
+dont:
+  - Make health claims
+  - Use hype or urgency
+  - Use jargon or tea snobbery
+banned_words: [detox, superfood, miracle, guilt-free, revolutionary]
+rubric:
+  version: "1.0"
+  criteria:
+    - name: voice
+      description: Does the copy sound like Brightleaf?
+      anchors:
+        1: Off-brand or contradicts the do/don't lists (hype, health claims).
+        2: Mostly generic marketing tone with a stray on-brand phrase.
+        3: Neutral and inoffensive, but could be any tea brand.
+        4: Clearly warm and plain-spoken, with one small slip.
+        5: Unmistakably Brightleaf, with concrete sensory detail and no slips.
+    - name: clarity
+      description: Is the message understood on one read?
+      anchors:
+        1: Confusing, with no clear point.
+        2: Point is buried or muddled.
+        3: Understandable but wordy or vague.
+        4: Clear and concise, with minor padding.
+        5: Instantly clear, with every word earning its place.
+    - name: call_to_action
+      description: Is the CTA specific, relevant and low-pressure?
+      anchors:
+        1: Missing, or pushy and irrelevant.
+        2: Present but generic ("Click here").
+        3: Relevant but bland.
+        4: Specific and fits the channel and objective.
+        5: Specific, inviting, matches the voice and the objective.

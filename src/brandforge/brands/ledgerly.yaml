@@ -1,0 +1,47 @@
+id: ledgerly
+version: "1.0"
+voice: [calm, precise, trustworthy]
+do:
+  - Name the specific problem it solves, such as invoices, VAT deadlines or month-end close
+  - Use plain language and define any accounting term in passing
+  - Be exact with numbers, time saved and what the product does
+  - Sound like a steady, experienced bookkeeper who respects the owner's time
+dont:
+  - Give tax, legal or investment advice
+  - Promise savings, refunds or compliance outcomes
+  - Use fear or deadline panic to push a decision
+  - Use slang, emoji or exclamation marks
+banned_words:
+  - hassle-free
+  - cutting-edge
+  - loophole
+  - foolproof
+  - skyrocket
+  - never worry
+rubric:
+  version: "1.0"
+  criteria:
+    - name: voice
+      description: Does the copy sound like Ledgerly?
+      anchors:
+        1: Off-brand, hyped or alarmist, or it breaks a don't rule such as promised outcomes or banned words.
+        2: Generic business-software tone with an occasional calm phrase.
+        3: Professional but could be any accounting tool, with little precision or specificity.
+        4: Clearly calm and precise, with plain language and one small slip such as a vague claim.
+        5: Unmistakably Ledgerly, steady and exact, naming a concrete problem with no hype and no slips.
+    - name: clarity
+      description: Is the message understood on one read?
+      anchors:
+        1: Confusing, with no clear point.
+        2: Point is buried or muddled.
+        3: Understandable but wordy or vague.
+        4: Clear and concise, with minor padding.
+        5: Instantly clear, with every word earning its place.
+    - name: call_to_action
+      description: Is the CTA specific, relevant and low-pressure?
+      anchors:
+        1: Missing, or pushy and irrelevant.
+        2: Present but generic, such as a bare "Click here".
+        3: Relevant but bland.
+        4: Specific and fits the channel and objective.
+        5: Specific, inviting, matches the voice and the objective.

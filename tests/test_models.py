@@ -8,7 +8,16 @@ from brandforge.models import BrandProfile, Brief, Critique, Usage, Variant
 
 def valid_rubric() -> dict[str, Any]:
     anchors = {i: f"level {i}" for i in range(1, 6)}
-    return {"criteria": [{"name": "voice", "description": "Fits brand voice", "anchors": anchors}]}
+    return {
+        "version": "1.0",
+        "criteria": [
+            {
+                "name": "voice",
+                "description": "Fits brand voice",
+                "anchors": anchors,
+            }
+        ],
+    }
 
 
 def valid_brief(**overrides: Any) -> dict[str, Any]:
@@ -69,6 +78,12 @@ class TestBrandProfile:
     def test_duplicate_criterion_names_rejected(self) -> None:
         rubric = valid_rubric()
         rubric["criteria"].append(rubric["criteria"][0])
+        with pytest.raises(ValidationError):
+            BrandProfile(**self.valid(rubric=rubric))
+
+    def test_rubric_version_required(self) -> None:
+        rubric = valid_rubric()
+        del rubric["version"]
         with pytest.raises(ValidationError):
             BrandProfile(**self.valid(rubric=rubric))
 

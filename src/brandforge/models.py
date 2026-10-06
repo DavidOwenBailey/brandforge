@@ -52,6 +52,7 @@ class RubricCriterion(_Contract):
 
 
 class Rubric(_Contract):
+    version: NonEmptyStr  # recorded in results alongside the brand version
     criteria: list[RubricCriterion] = Field(min_length=1)
 
     @field_validator("criteria")
