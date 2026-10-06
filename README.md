@@ -24,7 +24,7 @@ uv run brandforge
 ```text
 src/brandforge/
 ├── agents/        # planner, writer, critic, reviser, assembler
-├── llm/           # LLM gateway: provider abstraction, retries, token accounting
+├── llm/           # LLM gateway and per-provider adapters: retries, token accounting
 ├── retrieval/     # brand example index and retriever
 └── interfaces/    # CLI, API and demo page
 ```
