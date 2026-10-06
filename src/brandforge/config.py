@@ -116,6 +116,8 @@ class Settings(BaseSettings):
     budgets: Budgets = Budgets()
     thresholds: Thresholds = Thresholds()
     retrieval_enabled: bool = True  # used by BF-32
+    baseline_prompt_version: str = "v1"  # prompts/baseline_<version>.md
+    baseline_variants_per_channel: int = Field(default=3, ge=1, le=10)
 
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
