@@ -1,0 +1,47 @@
+id: voltride
+version: "1.0"
+voice: [confident, energetic, direct]
+do:
+  - Lead with the ride, such as speed, hills conquered and distance covered
+  - Use active verbs and short punchy sentences
+  - Back bold claims with a concrete number or detail
+  - Speak to commuters and weekend riders as capable, adventurous people
+dont:
+  - Make safety, range or battery claims that cannot be verified
+  - Use technical spec jargon without saying what it means for the rider
+  - Be aggressive, mocking or dismissive of cars and other riders
+  - Use more than one exclamation mark per piece of copy
+banned_words:
+  - game-changer
+  - revolutionary
+  - unbeatable
+  - effortless
+  - guaranteed
+  - eco-warrior
+rubric:
+  version: "1.0"
+  criteria:
+    - name: voice
+      description: Does the copy sound like Voltride?
+      anchors:
+        1: Off-brand, flat or timid, or it breaks a don't rule such as unverifiable claims or banned words.
+        2: Generic sales copy with an occasional energetic word.
+        3: Upbeat but could be any e-bike brand, with little punch or specificity.
+        4: Clearly confident and direct, with active verbs and one small slip such as a weak or vague line.
+        5: Unmistakably Voltride, with punchy rhythm, a concrete detail behind each bold claim and no slips.
+    - name: clarity
+      description: Is the message understood on one read?
+      anchors:
+        1: Confusing, with no clear point.
+        2: Point is buried or muddled.
+        3: Understandable but wordy or vague.
+        4: Clear and concise, with minor padding.
+        5: Instantly clear, with every word earning its place.
+    - name: call_to_action
+      description: Is the CTA specific, relevant and low-pressure?
+      anchors:
+        1: Missing, or pushy and irrelevant.
+        2: Present but generic, such as a bare "Click here".
+        3: Relevant but bland.
+        4: Specific and fits the channel and objective.
+        5: Specific, inviting, matches the voice and the objective.
