@@ -16,8 +16,11 @@ Requires [uv](https://docs.astral.sh/uv/). uv installs the pinned Python version
 git clone https://github.com/DavidOwenBailey/brandforge.git
 cd brandforge
 uv sync
-uv run brandforge
+cp .env.example .env   # then add your ANTHROPIC_API_KEY
+uv run brandforge generate --brand voltride --brief path/to/brief.yaml
 ```
+
+A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.
 
 ## Project layout
 
