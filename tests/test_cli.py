@@ -1,4 +1,4 @@
-"""CLI tests. The model is faked by replacing the planner and writer in the graph module."""
+"""CLI tests. The model is faked by replacing the planner, writer and critic in the graph module."""
 
 from pathlib import Path
 from typing import Any
@@ -60,9 +60,14 @@ def _fake_plan(state: RunState) -> dict[str, Any]:
     return {"plan": plan, "usage": Usage()}  # zero usage keeps the printed totals the generator's
 
 
+def _fake_critique(state: RunState) -> dict[str, Any]:
+    return {"critiques": [], "usage": Usage()}  # zero usage: totals stay the writer's
+
+
 @pytest.fixture(autouse=True)
-def fake_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+def fake_planner_and_critic(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(graph, "plan_brief", _fake_plan)
+    monkeypatch.setattr(graph, "critique_variants", _fake_critique)
 
 
 @pytest.fixture
