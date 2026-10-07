@@ -127,7 +127,7 @@ The graph is planner → retriever → writer → critic → router, where the r
 | Failure | Where it's caught | Handling | Run status |
 | :---- | :---- | :---- | :---- |
 | API timeout, rate limit, 5xx | LLM gateway | Exponential backoff with jitter, 3 attempts (tenacity) | Continues if a retry succeeds |
-| Output fails schema validation | LLM gateway | Re-ask once with the validation error in the prompt | Continues, or node fails |
+| Output fails schema validation | LLM gateway | Re-ask once with the invalid reply and the validation errors in the prompt (`max_schema_repairs`); usage counts both calls | Continues, or node fails |
 | Model truncated or refused (output limit, safety block)  | Provider adapter normalises it; gateway core raises StructuredOutputError  | Carries raw text, usage and outcome; not retried blindly (truncation needs a larger limit)  | Node fails, or continues if handled  |
 | Node fails after retries | Graph error edge | Record in errors, route to assembler with what exists | partial or failed |
 | Variant still below threshold after 2 revisions | Router | Stop revising; mark variant flagged | partial |

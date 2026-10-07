@@ -9,8 +9,12 @@ This module imports no provider SDK. Provider specifics live in
 `brandforge.llm.adapters`; adding a provider means adding an adapter and a branch
 in `brandforge.llm.registry`, not touching this file.
 
-Later tasks extend this module, not its callers: schema-repair re-ask (BF-21), budget
-checks (BF-23), tracing and caching (BF-25, BF-27).
+A reply that does not validate gets one repair attempt (BF-21): the call is repeated
+with the model's own reply and the validation errors in the prompt. Every call made,
+failed ones included, is added to the returned `Usage`.
+
+Later tasks extend this module, not its callers: budget checks (BF-23), tracing and
+caching (BF-25, BF-27).
 """
 
 import logging
@@ -38,6 +42,7 @@ from brandforge.llm.base import (
 from brandforge.llm.registry import get_adapter
 from brandforge.llm.schema import schema_problems
 from brandforge.models import Usage
+from brandforge.prompts.loader import load_prompt, render_prompt
 
 __all__ = [
     "GatewayConfigError",
@@ -100,14 +105,20 @@ def complete_structured[T: BaseModel](
 ) -> tuple[T, Usage]:
     """Send `prompt` to the model for `tier` and return a validated `schema` instance.
 
-    Returns the parsed model and the `Usage` (tokens and USD) for this one call.
-    `adapter` overrides the provider lookup; it exists for tests and for callers that
-    manage their own client.
+    Returns the parsed model and the `Usage` (tokens and USD) of every call it took,
+    so a repaired reply is reported at the cost of both calls. `adapter` overrides the
+    provider lookup; it exists for tests and for callers that manage their own client.
+
+    If a reply comes back whole but does not validate, the gateway asks again, up to
+    `budgets.max_schema_repairs` times, with the invalid reply and the validation
+    errors in the prompt. A refused or truncated reply is not re-asked.
 
     Raises:
         GatewayConfigError: a response schema that is not portable (see
             `schema_problems`), a provider with no adapter, or a missing API key.
-        StructuredOutputError: the reply was refused, truncated, or did not validate.
+        StructuredOutputError: the reply was refused, truncated, or still did not
+            validate after the repair attempts. Its `raw_text` and `validation_error`
+            are those of the last reply, and its `usage` covers every call made.
         TransientProviderError: the provider kept timing out, dropping the connection,
             rate limiting or returning 5xx for `budgets.max_llm_retries` attempts.
         Any other provider SDK error (a 400 or 401, say) passes through unchanged and
@@ -125,9 +136,50 @@ def complete_structured[T: BaseModel](
         )
 
     chosen = adapter or get_adapter(ref.provider, cfg)
+
+    total = Usage()
+    next_prompt = prompt
+    repairs_left = cfg.budgets.max_schema_repairs
+    while True:
+        try:
+            parsed, usage = _complete_once(
+                chosen, ref.model, next_prompt, system, schema, tier, cfg
+            )
+        except StructuredOutputError as exc:
+            total += exc.usage
+            # Only a reply that came back whole but invalid is worth re-asking about. A
+            # truncated or refused reply has no validation error and would fail the same way.
+            if exc.validation_error is None or repairs_left == 0:
+                exc.usage = total
+                raise
+            repairs_left -= 1
+            logger.warning(
+                "Reply did not validate as %s (%d error(s)); re-asking with the errors.",
+                schema.__name__,
+                exc.validation_error.error_count(),
+            )
+            next_prompt = _repair_prompt(prompt, exc.raw_text, exc.validation_error, cfg)
+        else:
+            return parsed, total + usage
+
+
+def _complete_once[T: BaseModel](
+    adapter: ProviderAdapter,
+    model: str,
+    prompt: str,
+    system: str | None,
+    schema: type[T],
+    tier: Tier,
+    cfg: Settings,
+) -> tuple[T, Usage]:
+    """One model call, retried on transient failures, validated into `schema`.
+
+    On any unusable reply it raises `StructuredOutputError` carrying the usage of this
+    call alone; `complete_structured` adds it to the total.
+    """
     raw = _call_with_retries(
-        lambda: chosen.complete(
-            model=ref.model,
+        lambda: adapter.complete(
+            model=model,
             prompt=prompt,
             system=system,
             schema=schema,
@@ -157,3 +209,28 @@ def complete_structured[T: BaseModel](
             validation_error=exc,
         ) from exc
     return parsed, usage
+
+
+def _describe_validation_error(error: ValidationError) -> str:
+    """The validation problems as one line each: where, and what is wrong.
+
+    Offending values are left out: they are in the previous reply the model is shown
+    anyway, and some (a whole malformed document) are not useful on a line of their own.
+    """
+    lines = []
+    for item in error.errors(include_url=False, include_context=False, include_input=False):
+        where = ".".join(str(part) for part in item["loc"]) or "(whole reply)"
+        lines.append(f"- {where}: {item['msg']}")
+    return "\n".join(lines)
+
+
+def _repair_prompt(
+    original_prompt: str, previous_reply: str, error: ValidationError, cfg: Settings
+) -> str:
+    """The original request plus the model's invalid reply and what was wrong with it."""
+    return render_prompt(
+        load_prompt("repair", cfg.repair_prompt_version),
+        original_prompt=original_prompt,
+        previous_reply=previous_reply,
+        problems=_describe_validation_error(error),
+    )

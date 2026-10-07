@@ -42,8 +42,9 @@ class TransientProviderError(GatewayError):
 class StructuredOutputError(GatewayError):
     """The model replied, but not with a valid instance of the requested schema.
 
-    Carries what the repair retry (BF-21) needs: the raw text and the validation
-    error. It also carries the usage, because the failed call still cost money.
+    Carries the raw text and the validation error of the last reply, which is what
+    the gateway's repair retry (BF-21) is built from. It also carries the usage of
+    every call made, because failed calls still cost money.
     """
 
     def __init__(

@@ -79,6 +79,10 @@ class Budgets(BaseModel):
     # Backoff between attempts: initial * 2**(n-1) seconds plus up to 1s of jitter, capped.
     retry_initial_wait_seconds: float = Field(default=1.0, ge=0)
     retry_max_wait_seconds: float = Field(default=20.0, ge=0)
+    # Extra calls allowed per model call when the reply does not validate against the
+    # schema: each re-asks with the validation errors in the prompt. 1 means one repair
+    # attempt; 0 turns the repair retry off.
+    max_schema_repairs: int = Field(default=1, ge=0)
     max_output_tokens_per_call: int = Field(default=2_048, gt=0)
     request_timeout_seconds: float = Field(default=60.0, gt=0)
 
@@ -128,6 +132,7 @@ class Settings(BaseSettings):
     writer_prompt_version: str = "v1"  # prompts/writer_<version>.md
     critic_prompt_version: str = "v1"  # prompts/critic_<version>.md
     reviser_prompt_version: str = "v1"  # prompts/reviser_<version>.md
+    repair_prompt_version: str = "v1"  # prompts/repair_<version>.md (gateway schema repair)
 
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")

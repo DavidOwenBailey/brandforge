@@ -9,6 +9,13 @@ def test_loads_the_shipped_baseline_prompt() -> None:
     assert "{{brand_id}}" in load_prompt("baseline", "v1")
 
 
+def test_the_shipped_repair_prompt_has_the_placeholders_the_gateway_fills() -> None:
+    template = load_prompt("repair", "v1")
+
+    for placeholder in ("original_prompt", "previous_reply", "problems"):
+        assert "{{" + placeholder + "}}" in template
+
+
 def test_unknown_version_raises() -> None:
     with pytest.raises(FileNotFoundError, match=r"baseline_v999\.md"):
         load_prompt("baseline", "v999")
