@@ -62,7 +62,7 @@ def format_variants(variants: list[Variant]) -> str:
         f"[{v.id}] {v.channel}\n  Headline: {v.headline}\n  Body:     {v.body}\n  CTA:      {v.cta}"
         for v in variants
     ]
-    return "\n\n".join(blocks) if blocks else "(the model returned no variants)"
+    return "\n\n".join(blocks) if blocks else "(no variants were produced)"
 
 
 def _table(header: list[str], rows: list[list[str]]) -> str:

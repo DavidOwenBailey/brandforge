@@ -129,10 +129,16 @@ class Example(_Contract):
 
 
 class RunError(_Contract):
-    """A failure recorded in state so the run can still end in a defined status."""
+    """A failure recorded in state so the run can still end in a defined status.
+
+    `fatal` is set by the graph's error edges (BF-22) when a node raised and the run was sent to
+    the assembler with what exists. A non-fatal error is a warning the run carried on past, such
+    as the writer getting fewer variants than asked for.
+    """
 
     node: NonEmptyStr
     message: NonEmptyStr
+    fatal: bool = False
 
 
 RunStatus = Literal["running", "complete", "partial", "failed"]

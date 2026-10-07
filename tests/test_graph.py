@@ -1,4 +1,5 @@
-"""The graph: planner, writer, critic and the revision loop, with typed state and reducers."""
+"""The graph: planner, writer, critic and the revision loop, with typed state, reducers and
+error edges."""
 
 from typing import Any
 
@@ -16,7 +17,7 @@ from brandforge.graph import (
     build_graph,
     run_graph,
 )
-from brandforge.llm.base import GatewayError
+from brandforge.llm.base import GatewayError, StructuredOutputError
 from brandforge.models import (
     Brief,
     Critique,
@@ -195,10 +196,13 @@ def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser
     assert edges == {
         ("__start__", PLANNER_NODE),
         (PLANNER_NODE, WRITER_NODE),
+        (PLANNER_NODE, ASSEMBLER_NODE),
         (WRITER_NODE, CRITIC_NODE),
+        (WRITER_NODE, ASSEMBLER_NODE),
         (CRITIC_NODE, REVISER_NODE),
         (CRITIC_NODE, ASSEMBLER_NODE),
         (REVISER_NODE, CRITIC_NODE),
+        (REVISER_NODE, ASSEMBLER_NODE),
         (ASSEMBLER_NODE, "__end__"),
     }
 
@@ -375,19 +379,6 @@ def test_reviser_usage_is_added_to_the_run_total(brief: Brief) -> None:
     assert state["usage"].cost_usd == pytest.approx(0.007)
 
 
-def test_reviser_errors_propagate_until_error_edges_exist(brief: Brief) -> None:
-    # BF-22 turns this into a recorded RunError and a partial/failed status.
-    with pytest.raises(GatewayError, match="reviser down"):
-        run_graph(
-            brief,
-            load_brand("voltride"),
-            plan=FakePlan(),
-            write=FakeWrite(),
-            critique=ScriptedCritique([False]),
-            revise=FakeRevise(error=GatewayError("reviser down")),
-        )
-
-
 def test_the_assembler_runs_last_and_sees_the_final_state(brief: Brief) -> None:
     assemble = FakeAssemble()
 
@@ -452,45 +443,187 @@ def test_node_usage_is_added_to_existing_usage_by_the_reducer(brief: Brief) -> N
     assert state["usage"].cost_usd == pytest.approx(0.503)
 
 
-def test_writer_errors_propagate_until_error_edges_exist(brief: Brief) -> None:
-    # BF-22 turns this into a recorded RunError and a partial/failed status.
-    critique = FakeCritique()
-
-    with pytest.raises(GatewayError, match="boom"):
-        run_graph(
-            brief,
-            load_brand("voltride"),
-            plan=FakePlan(),
-            write=FakeWrite(GatewayError("boom")),
-            critique=critique,
-        )
-
-    assert critique.calls == []
+def _structured_output_error(usage: Usage) -> StructuredOutputError:
+    return StructuredOutputError(
+        "reply was not valid", raw_text="{", usage=usage, outcome="complete"
+    )
 
 
-def test_critic_errors_propagate_until_error_edges_exist(brief: Brief) -> None:
-    with pytest.raises(GatewayError, match="judge down"):
-        run_graph(
-            brief,
-            load_brand("voltride"),
-            plan=FakePlan(),
-            write=FakeWrite(),
-            critique=FakeCritique(error=GatewayError("judge down")),
-        )
-
-
-def test_planner_errors_stop_the_run_before_the_writer(brief: Brief) -> None:
+def test_a_planner_failure_ends_the_run_failed_without_calling_later_nodes(brief: Brief) -> None:
     write = FakeWrite()
     critique = FakeCritique()
 
-    with pytest.raises(GatewayError, match="no plan"):
-        run_graph(
-            brief,
-            load_brand("voltride"),
-            plan=FakePlan(GatewayError("no plan")),
-            write=write,
-            critique=critique,
-        )
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(GatewayError("no plan")),
+        write=write,
+        critique=critique,
+    )
 
     assert write.calls == []
     assert critique.calls == []
+    assert state["status"] == "failed"
+    assert state["variants"] == []
+    assert [(e.node, e.message, e.fatal) for e in state["errors"]] == [
+        ("planner", "GatewayError: no plan", True)
+    ]
+    assert state["result"] is not None
+    assert state["result"].status == "failed"
+    assert state["result"].variants == []
+    assert state["result"].errors == state["errors"]
+
+
+def test_a_writer_failure_ends_the_run_failed_and_keeps_the_plan_usage(brief: Brief) -> None:
+    critique = FakeCritique()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(GatewayError("boom")),
+        critique=critique,
+    )
+
+    assert critique.calls == []
+    assert state["status"] == "failed"
+    assert state["plan"] is not None
+    assert [(e.node, e.fatal) for e in state["errors"]] == [("writer", True)]
+    assert state["usage"].input_tokens == 10  # the planner's usage survives
+
+
+def test_a_critic_failure_flags_the_unscored_variants_and_ends_partial(brief: Brief) -> None:
+    revise = FakeRevise()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=FakeCritique(error=GatewayError("judge down")),
+        revise=revise,
+    )
+
+    assert revise.calls == []
+    assert state["status"] == "partial"
+    assert [e.node for e in state["errors"]] == ["critic"]
+    assert state["result"] is not None
+    assert state["result"].status == "partial"
+    assert [item.flagged for item in state["result"].variants] == [True]
+    assert [item.critique for item in state["result"].variants] == [None]
+
+
+def test_a_reviser_failure_keeps_the_variants_and_flags_the_ones_still_failing(
+    brief: Brief,
+) -> None:
+    critique = ScriptedCritique([False])
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=critique,
+        revise=FakeRevise(error=GatewayError("reviser down")),
+    )
+
+    assert len(critique.calls) == 1  # no re-score after the failed revision
+    assert state["status"] == "partial"
+    assert state["revision_count"] == 0
+    assert [v.headline for v in state["variants"]] == ["H"]
+    assert [(e.node, e.fatal) for e in state["errors"]] == [("reviser", True)]
+    assert state["result"] is not None
+    assert [item.flagged for item in state["result"].variants] == [True]
+
+
+def test_a_critic_failure_after_a_revision_flags_the_rewritten_variant(brief: Brief) -> None:
+    class ScoresOnceThenFails(ScriptedCritique):
+        def __call__(self, state: RunState) -> dict[str, Any]:
+            if self.calls:
+                self.calls.append(state)
+                raise GatewayError("judge down")
+            return super().__call__(state)
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=ScoresOnceThenFails([False]),
+        revise=FakeRevise(),
+    )
+
+    assert state["status"] == "partial"
+    assert state["revision_count"] == 1
+    assert [v.headline for v in state["variants"]] == ["H-r1"]
+    assert state["critiques"] == []  # the stale critique was dropped by the reviser
+    assert state["result"] is not None
+    assert [item.flagged for item in state["result"].variants] == [True]
+
+
+def test_the_usage_of_a_failed_structured_call_is_added_to_the_run_total(brief: Brief) -> None:
+    failed = Usage(input_tokens=700, output_tokens=300, cost_usd=0.02)
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=FakeCritique(error=_structured_output_error(failed)),
+    )
+
+    assert state["usage"].input_tokens == 810
+    assert state["usage"].output_tokens == 355
+    assert state["usage"].cost_usd == pytest.approx(0.023)
+    assert "StructuredOutputError: reply was not valid" in state["errors"][0].message
+
+
+def test_an_exception_with_no_message_is_still_recorded_with_its_type(brief: Brief) -> None:
+    state = run_graph(
+        brief, load_brand("voltride"), plan=FakePlan(RuntimeError()), write=FakeWrite()
+    )
+
+    assert [e.message for e in state["errors"]] == ["RuntimeError"]
+    assert state["status"] == "failed"
+
+
+def test_a_writer_warning_does_not_halt_the_run(brief: Brief) -> None:
+    critique = FakeCritique()
+    warning = RunError(node="writer", message="channel 'search': asked for 2 variants, got 1")
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(errors=[warning]),
+        critique=critique,
+    )
+
+    assert len(critique.calls) == 1
+    assert state["errors"] == [warning]
+    assert warning.fatal is False
+
+
+def test_a_failed_node_does_not_stop_the_other_errors_being_kept(brief: Brief) -> None:
+    warning = RunError(node="writer", message="channel 'search': asked for 2 variants, got 1")
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(errors=[warning]),
+        critique=FakeCritique(error=GatewayError("judge down")),
+    )
+
+    assert [(e.node, e.fatal) for e in state["errors"]] == [("writer", False), ("critic", True)]
+    assert state["status"] == "partial"
+
+
+def test_the_guard_does_not_swallow_keyboard_interrupts(brief: Brief) -> None:
+    with pytest.raises(KeyboardInterrupt):
+        run_graph(
+            brief,
+            load_brand("voltride"),
+            plan=FakePlan(KeyboardInterrupt()),  # type: ignore[arg-type]
+            write=FakeWrite(),
+        )

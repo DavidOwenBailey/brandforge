@@ -173,7 +173,7 @@ def test_a_run_with_no_variants_is_reported_failed_and_exits_nonzero(
     result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
 
     assert result.exit_code == 1
-    assert "(the model returned no variants)" in result.stdout
+    assert "(no variants were produced)" in result.stdout
     assert "Status:    failed" in result.stdout
     assert "Variant  Channel" not in result.stdout  # no rows, so no table
 
@@ -257,7 +257,7 @@ def test_unknown_brand_lists_known_brands(fake: FakeGenerate, brief_file: Path) 
     assert fake.calls == []
 
 
-def test_gateway_error_is_reported_not_raised(
+def test_a_node_failure_is_reported_in_the_summary_and_exits_1(
     monkeypatch: pytest.MonkeyPatch, brief_file: Path
 ) -> None:
     monkeypatch.setattr(
@@ -269,7 +269,9 @@ def test_gateway_error_is_reported_not_raised(
     result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
 
     assert result.exit_code == 1
-    assert "generation failed: ANTHROPIC_API_KEY is not set." in result.output
+    assert "Status:    failed" in result.output
+    assert "Errors:" in result.output
+    assert "[writer] GatewayConfigError: ANTHROPIC_API_KEY is not set." in result.output
 
 
 def test_version_flag() -> None:

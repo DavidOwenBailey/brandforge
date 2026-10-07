@@ -96,3 +96,8 @@ def test_example_and_run_error_reject_unknown_fields() -> None:
         )
     with pytest.raises(ValidationError):
         RunError(node="  ", message="boom")
+
+
+def test_run_error_is_not_fatal_unless_marked() -> None:
+    assert RunError(node="writer", message="short").fatal is False
+    assert RunError(node="planner", message="down", fatal=True).fatal is True
