@@ -35,4 +35,4 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 
 ### **The graph shell (`graph.py`)**
 
-`build_graph()` compiles a LangGraph `StateGraph` over `RunState`, and `run_graph(brief, brand)` runs one brief and returns the final state. Until the planner, writer and critic land (BF-13 to BF-18) the graph has a single `baseline` node that wraps `generate_baseline`, so `brandforge generate` keeps working end to end through the graph. Errors from the node still propagate; BF-22 turns them into recorded `RunError`s and a `partial` or `failed` status.
+`build_graph()` compiles a LangGraph `StateGraph` over `RunState`, and `run_graph(brief, brand)` runs one brief and returns the final state. The graph currently runs the `planner` node (BF-13), which writes `plan`, and then a `baseline` node that wraps `generate_baseline`, so `brandforge generate` keeps working end to end through the graph. The baseline does not use the plan yet; the writer (BF-14) replaces it. Errors from a node still propagate; BF-22 turns them into recorded `RunError`s and a `partial` or `failed` status.
