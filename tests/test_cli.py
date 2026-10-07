@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from brandforge import __version__, graph
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
-from brandforge.models import Critique, Plan, RunState, Usage, Variant
+from brandforge.models import Critique, Plan, RunError, RunState, Usage, Variant
 
 runner = CliRunner()
 
@@ -105,6 +105,97 @@ def test_generate_prints_variants_and_cost(fake: FakeGenerate, brief_file: Path)
     assert "CTA 2" in result.stdout
     assert "Tokens: 120 in, 80 out (200 total)" in result.stdout
     assert "Cost:   $0.0012" in result.stdout
+
+
+def test_generate_prints_a_summary_table_of_scores_and_flags(
+    fake: FakeGenerate, brief_file: Path
+) -> None:
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 0
+    assert "Status:    complete" in result.stdout
+    assert "Brand:     voltride v" in result.stdout
+    assert "Variants:  2 (0 flagged)" in result.stdout
+    assert "Revisions: 0" in result.stdout
+    rows = [line.split() for line in result.stdout.splitlines()]
+    assert ["Variant", "Channel", "voice", "Overall", "Result"] in rows
+    assert ["search-1", "search", "5", "5.0", "passed"] in rows
+    assert ["social-2", "social", "5", "5.0", "passed"] in rows
+    assert "Still to fix:" not in result.stdout
+    assert "Errors:" not in result.stdout
+
+
+def _failing_critique(state: RunState) -> dict[str, Any]:
+    critiques = [
+        Critique(
+            variant_id=v.id,
+            scores={"voice": 2},
+            overall=2.0,
+            passed=False,
+            fixes=["Tighten the headline"],
+        )
+        for v in state["variants"]
+    ]
+    return {"critiques": critiques, "usage": Usage()}
+
+
+def _counting_revise(state: RunState) -> dict[str, Any]:
+    # Changes nothing but the count, so the loop runs to the cap and the router stops it.
+    return {"critiques": [], "revision_count": state["revision_count"] + 1, "usage": Usage()}
+
+
+def test_flagged_variants_are_marked_with_their_remaining_fixes(
+    fake: FakeGenerate, brief_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(graph, "critique_variants", _failing_critique)
+    monkeypatch.setattr(graph, "revise_variants", _counting_revise)
+
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 0
+    assert "Status:    partial" in result.stdout
+    assert "Variants:  2 (2 flagged)" in result.stdout
+    assert "Revisions: 2" in result.stdout
+    rows = [line.split() for line in result.stdout.splitlines()]
+    assert ["search-1", "search", "2", "2.0", "flagged"] in rows
+    assert "Still to fix:" in result.stdout
+    assert "[search-1] Tighten the headline" in result.stdout
+
+
+def test_a_run_with_no_variants_is_reported_failed_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, brief_file: Path
+) -> None:
+    def empty_writer(state: RunState) -> dict[str, Any]:
+        return {"variants": [], "usage": Usage()}
+
+    monkeypatch.setattr(graph, "write_variants", empty_writer)
+
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 1
+    assert "(the model returned no variants)" in result.stdout
+    assert "Status:    failed" in result.stdout
+    assert "Variant  Channel" not in result.stdout  # no rows, so no table
+
+
+def test_errors_recorded_during_the_run_are_listed(
+    monkeypatch: pytest.MonkeyPatch, brief_file: Path
+) -> None:
+    def short_writer(state: RunState) -> dict[str, Any]:
+        return {
+            "variants": [_variant(1)],
+            "errors": [RunError(node="writer", message="channel 'social': got 0 variants")],
+            "usage": Usage(),
+        }
+
+    monkeypatch.setattr(graph, "write_variants", short_writer)
+
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 0
+    assert "Status:    partial" in result.stdout
+    assert "Errors:" in result.stdout
+    assert "[writer] channel 'social': got 0 variants" in result.stdout
 
 
 def test_generate_passes_validated_brief_and_brand(fake: FakeGenerate, brief_file: Path) -> None:
