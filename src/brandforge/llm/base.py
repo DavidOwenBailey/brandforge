@@ -23,6 +23,22 @@ class GatewayConfigError(GatewayError):
     """The gateway cannot run with the current configuration (not retryable)."""
 
 
+TransientKind = Literal["timeout", "connection", "rate_limit", "server"]
+
+
+class TransientProviderError(GatewayError):
+    """A provider call failed in a way that may succeed if simply repeated.
+
+    Adapters raise this for timeouts, dropped connections, rate limits and 5xx
+    responses, translating their own SDK's exceptions. It is the only error the
+    gateway core retries. The original SDK exception is chained as `__cause__`.
+    """
+
+    def __init__(self, message: str, *, kind: TransientKind) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
 class StructuredOutputError(GatewayError):
     """The model replied, but not with a valid instance of the requested schema.
 
@@ -63,6 +79,11 @@ class ProviderAdapter(Protocol):
     setting), makes the call and normalises the result. It does not validate the
     reply, compute cost, retry or trace: the gateway core does that identically for
     every provider.
+
+    The one thing an adapter does about failures is classify them: a timeout,
+    dropped connection, rate limit or 5xx from its SDK is raised as
+    `TransientProviderError`, so the core's retry policy never needs to know which
+    SDK is underneath. Any other SDK error is left to propagate unchanged.
     """
 
     def complete(

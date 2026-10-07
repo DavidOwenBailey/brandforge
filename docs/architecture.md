@@ -24,16 +24,16 @@ BrandForge is a Python multi-agent pipeline, orchestrated with LangGraph, that t
 | Reliability | Every run ends in a defined state, never a crash or infinite loop | Schema validation, bounded retries, revision cap |
 | Observability | Every agent step traceable with inputs, outputs, tokens, latency | Langfuse callbacks on every node |
 | Cost | Known cost per run, reported with each result | Token accounting in state; cheaper model for drafting |
-| Latency | One brief end to end in under \~60 seconds | Parallel variant critique; small per-agent contexts |
-| Modifiability | Swap model provider or add an agent without touching others | Provider abstraction; agents as pure functions over state |
+| Latency | One brief end to end in under ~60 seconds | Parallel variant critique; small per-agent contexts |
+| Modifiability | Swap model provider or add an agent without touching others | Provider-neutral gateway core with one adapter per provider (Claude, Gemini); agents as pure functions over state  |
 
-The latency target is a working assumption to confirm on day 3\.
+The latency target is a working assumption to confirm on day 3.
 
 ## **System overview**
 
 ![BrandForge system overview · interfaces, orchestrator, shared services](img/system_overview.png)
 
-Interfaces, orchestrator, shared services Interfaces and the eval harness invoke the same compiled graph. Agents never call each other or a provider directly: the router owns control flow, and every model call goes through the gateway, which handles retries, token accounting and tracing.
+Interfaces, orchestrator, shared services Interfaces and the eval harness invoke the same compiled graph. Agents never call each other or a provider directly: the router owns control flow, and every model call goes through the gateway, which handles retries, token accounting and tracing in a provider-neutral core. A thin adapter per provider (Claude, Gemini) translates the call into that provider's SDK. 
 
 ## **Components**
 
@@ -45,10 +45,11 @@ Each agent is a pure function: it reads the slice of state it needs and returns 
 | Retriever | Fetch the 3–5 most relevant approved examples for this brand and channel | brand.id, plan | examples | Embeddings only |
 | Writer | Produce variants per channel as schema-valid JSON | plan, brand, examples | variants | Fast |
 | Brand critic | Score each variant 1–5 on voice, clarity, call to action; explain fixes | variants, brand.rubric | critiques | Strong |
-| Router | Decide: all pass, revise, or stop and flag | critiques, revision\_count | next node | None (code) |
-| Reviser | Rewrite only failing variants using the critic's notes | failing variants, critiques | variants, revision\_count | Fast |
+| Router | Decide: all pass, revise, or stop and flag | critiques, revision_count | next node | None (code) |
+| Reviser | Rewrite only failing variants using the critic's notes | failing variants, critiques | variants, revision_count | Fast |
 | Assembler | Package final variants, scores, flags, cost and trace ID | full state | result | None (code) |
-| LLM gateway | One interface over Anthropic and OpenAI SDKs; retries, timeouts, token accounting | prompts | completions, usage | — |
+| LLM gateway | One complete_structured(prompt, schema, tier) interface. Provider-neutral core: tier→model resolution, cost, schema validation, portable-schema check, retries, budgets. One adapter per provider (Anthropic, Gemini) builds the request and normalises the reply.  | prompts | completions, usage | — |
+| Provider adapters  | One per provider. Build that provider's structured-output request, call its SDK, return text, token counts and a normalised outcome (complete, truncated, refused). No validation, cost or retries  | prompt, schema  | raw completion  | — |
 | Brand store | Brand profiles and rubrics as versioned YAML files | — | — | — |
 | Example index | Embedded approved copy per brand (Chroma, local) | — | — | — |
 | Interfaces | Typer CLI and a thin FastAPI endpoint with a Streamlit page | brief input | result | — |
@@ -105,12 +106,17 @@ class RunState(TypedDict):
     errors: list[RunError]
     usage: Usage  # tokens + cost, accumulated per node
     status: Literal["running", "complete", "partial", "failed"]
-```  
+``` 
+
+Critique.scores is shown as dict[str, int] because that is the in-memory shape. Strict structured-output modes cannot express free-form dict keys, so the critic does not ask the model for it. The model returns a CriticReply (a list of {criterion, score} items), and build_critique converts it into a Critique in code, checking that every rubric criterion is present exactly once and computing overall and passed. 
+
 **Contract rules**
 
 * Every LLM output is parsed into its model; a parse failure is a retryable error, not a crash.  
 * Agents return only the keys they own (see Components). usage and errors use reducer functions so nodes append rather than overwrite.  
 * Brand profiles and rubrics carry a version; the result records which version was used, so eval runs are reproducible.
+
+* Response schemas must be portable across providers: lists of items, never free-form dict fields. The gateway core rejects non-portable schemas before any call is made. 
 
 ## **Control flow and failure handling**
 
@@ -122,6 +128,7 @@ The graph is planner → retriever → writer → critic → router, where the r
 | :---- | :---- | :---- | :---- |
 | API timeout, rate limit, 5xx | LLM gateway | Exponential backoff with jitter, 3 attempts (tenacity) | Continues if a retry succeeds |
 | Output fails schema validation | LLM gateway | Re-ask once with the validation error in the prompt | Continues, or node fails |
+| Model truncated or refused (output limit, safety block)  | Provider adapter normalises it; gateway core raises StructuredOutputError  | Carries raw text, usage and outcome; not retried blindly (truncation needs a larger limit)  | Node fails, or continues if handled  |
 | Node fails after retries | Graph error edge | Record in errors, route to assembler with what exists | partial or failed |
 | Variant still below threshold after 2 revisions | Router | Stop revising; mark variant flagged | partial |
 | Retriever returns nothing | Retriever | Proceed with zero examples; log a warning | Continues |
@@ -143,30 +150,31 @@ The stack favours mainstream, well-documented tools that agent roles ask for by 
 | Layer | Choice | Why | Alternative considered |
 | :---- | :---- | :---- | :---- |
 | Language | Python 3.12 | Lingua franca of agent tooling; supported by LangGraph 1.2.x (Python 3.10–3.13) | TypeScript (LangGraph.js) |
-| Project tooling | uv, Ruff, mypy, pytest | Fast, reproducible setup; strict typing feels familiar coming from C\# | Poetry, Black |
+| Project tooling | uv, Ruff, mypy, pytest | Fast, reproducible setup; strict typing feels familiar coming from C# | Poetry, Black |
 | Orchestration | LangGraph 1.2.x | Explicit graph and typed state, conditional edges, checkpointing; closest to BPMN-style orchestration | CrewAI (less control over state), AutoGen (conversation-centric) |
-| Data contracts | Pydantic v2 | Validates every LLM output; generates JSON schemas for structured output | dataclasses \+ jsonschema |
-| LLM provider | Anthropic SDK, behind an internal gateway | Tool use and structured outputs; gateway keeps the provider swappable | OpenAI SDK, LiteLLM |
-| Strong tier | Claude Sonnet 5.5 (claude-sonnet-5-5, \$2 / \$10 per M tokens) | Planner and critic need judgement; best speed/quality balance | Claude Opus 5.5 |
-| Fast tier | Claude Haiku 4.5 (claude-haiku-4-5-20251001, \$1 / \$5 per M tokens) | Writer and reviser run most often; cheapest and fastest | Sonnet for both tiers |
-| Judge model | Claude Opus 5.5, optionally cross-checked with an OpenAI model | A stronger, different model than the generator reduces self-preference bias | Same model as critic (cheaper, more biased) |
+| Data contracts | Pydantic v2 | Validates every LLM output; generates JSON schemas for structured output | dataclasses + jsonschema |
+| LLM provider | Provider-neutral gateway core with adapters: Anthropic SDK (Messages API) and google-genai (generate_content)  | Structured outputs on both; the core owns retries, cost and validation once, and an SDK is imported only when a tier uses it  | OpenAI adapter (if time allows), LiteLLM, LangChain chat models, Claude Agent SDK  |
+| Strong tier | Claude Sonnet 5.5 (claude-sonnet-5-5, $2 / $10 per M tokens) | Planner and critic need judgement; best speed/quality balance | Claude Opus 5.5 |
+| Fast tier | Claude Haiku 4.5 (claude-haiku-4-5-20251001, $1 / $5 per M tokens) | Writer and reviser run most often; cheapest and fastest | Sonnet for both tiers |
+| Tier configuration  | provider:model strings, e.g. anthropic:claude-sonnet-5-5 or gemini:<model-id>, with per-tier prices in config  | Switching a tier's provider is a config change  | Hard-coded model IDs  |
+| Judge model | Claude Opus 5.5, optionally cross-checked with a Gemini model (a tier set to gemini:<model-id>)  | A stronger, different model than the generator reduces self-preference bias | Same model as critic (cheaper, more biased) |
 | Retries | tenacity | Declarative backoff and retry policies | Hand-rolled loops |
-| Retrieval | Chroma (local, persistent) \+ provider embeddings | Zero-infrastructure vector store; enough for a few hundred examples | pgvector, Qdrant |
+| Retrieval | Chroma (local, persistent) + provider embeddings | Zero-infrastructure vector store; enough for a few hundred examples | pgvector, Qdrant |
 | Brand store | Versioned YAML files in the repo | Reviewable in Git; no database needed for the POC | Postgres |
 | Checkpointing | LangGraph SQLite checkpointer | Inspect and resume runs locally | Postgres checkpointer (production) |
-| Tracing | Langfuse (self-hosted via Docker Compose, or free cloud tier) | Open source; native LangGraph integration; shows agent graphs, tokens, cost | LangSmith, OpenTelemetry \+ Jaeger |
-| Evaluation | promptfoo \+ LLM-as-a-judge rubric; pytest for deterministic checks | Named in target job specs; YAML test suites run in CI | DeepEval, Ragas |
+| Tracing | Langfuse (self-hosted via Docker Compose, or free cloud tier) | Open source; native LangGraph integration; shows agent graphs, tokens, cost | LangSmith, OpenTelemetry + Jaeger |
+| Evaluation | promptfoo + LLM-as-a-judge rubric; pytest for deterministic checks | Named in target job specs; YAML test suites run in CI | DeepEval, Ragas |
 | Prompt optimisation (stretch) | DSPy | Systematic prompt tuning against the eval set | Manual iteration |
 | Interfaces | Typer CLI; FastAPI endpoint; Streamlit demo page | CLI for evals and scripting, API to show service design, Streamlit for the video | Gradio |
 | Packaging and CI | Docker, GitHub Actions | One-command run; lint, tests and a small eval subset on every push | — |
 
-Model IDs and prices are from Anthropic's [models overview](https://platform.claude.com/docs/en/models/overview); LangGraph version from [PyPI](https://pypi.org/project/langgraph/). Pin exact versions in pyproject.toml on day one.
+Model IDs and prices are from Anthropic's [models overview](https://platform.claude.com/docs/en/models/overview); LangGraph version from [PyPI](https://pypi.org/project/langgraph/). Pin exact versions in pyproject.toml on day one. Gemini model IDs and prices are set in .env; check Google's pricing page if chosen.
 
 ## **Evaluation architecture**
 
 The evaluation answers one question: does the full pipeline produce better on-brand copy than a single prompt, and at what cost? It runs offline against a fixed dataset, so results are comparable between changes.
 
-**Dataset:** 3 brands × 10 briefs \= 30 cases, stored as YAML under evals/. Each case has the brief, the brand ID, and any hard constraints.
+**Dataset:** 3 brands × 10 briefs = 30 cases, stored as YAML under evals/. Each case has the brief, the brand ID, and any hard constraints.
 
 **Two systems under test**
 
@@ -177,7 +185,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 
 | Layer | Tool | What it checks | Pass rule |
 | :---- | :---- | :---- | :---- |
-| Deterministic | promptfoo assertions \+ pytest | Valid JSON, character limits per channel, banned words absent, required CTA present | 100% must pass |
+| Deterministic | promptfoo assertions + pytest | Valid JSON, character limits per channel, banned words absent, required CTA present | 100% must pass |
 | Model-graded | promptfoo llm-rubric with the judge model | Brand-voice fit, clarity, CTA strength, each scored 1–5 against anchored descriptions | Report mean and distribution |
 | Human calibration | Your own scores on a 15-case sample | Agreement between you and the judge | Report agreement; tune rubric if it's low |
 
@@ -198,7 +206,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 
 * One Langfuse trace per run, with a span per graph node; each span records model, prompt version, input, output, tokens, latency and errors.  
 * The trace ID is returned in the result and printed by the CLI, so any output links straight to how it was produced.  
-* Structured JSON logs (structlog) carry the same run\_id for correlation.  
+* Structured JSON logs (structlog) carry the same run_id for correlation.  
 * Prompts are versioned files; the prompt version is a span attribute, so eval results tie to exact prompts.
 
 **Cost controls**
@@ -208,6 +216,8 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * Fast-tier model for the high-volume writer and reviser calls; strong tier only for planning, critique and judging.  
 * Prompt caching for the static parts of prompts (system prompt, brand profile), which repeat on every call in a run.  
 * A spending limit on the API account during development.
+
+* Thinking tokens (Gemini) are counted as output tokens, as billed. Prompt-cache pricing differs by provider and is handled in BF-27. 
 
 **Security and data handling**
 
@@ -221,19 +231,25 @@ The evaluation answers one question: does the full pipeline produce better on-br
 brandforge/  
 ├── README.md                 # problem, diagram, quickstart, results, limitations  
 ├── pyproject.toml            # pinned deps, ruff, mypy, pytest config  
-├── docker-compose.yml        # app \+ optional self-hosted Langfuse  
+├── docker-compose.yml        # app + optional self-hosted Langfuse  
 ├── .env.example  
 ├── docs/  
 │   ├── architecture.md       # this document  
 │   └── adr/                  # 0001-langgraph.md, 0002-revision-cap.md, ...  
 ├── src/brandforge/  
 │   ├── config.py             # settings, model tiers, budgets  
-│   ├── models.py             # Pydantic contracts \+ RunState  
+│   ├── models.py             # Pydantic contracts + RunState  
+│   ├── scoring.py            # build_critique: CriticReply → Critique   
 │   ├── graph.py              # nodes, edges, router, checkpointer  
 │   ├── agents/               # planner.py, writer.py, critic.py, reviser.py, assembler.py  
 │   ├── prompts/              # versioned prompt templates  
-│   ├── llm/gateway.py        # provider abstraction, retries, token accounting  
-│   ├── retrieval/            # Chroma index build \+ query  
+│   ├── llm/                  # gateway core, schema guard, provider registry  
+│   │   ├── gateway.py        # complete_structured: tiers, cost, validation, retries  
+│   │   ├── base.py           # ProviderAdapter protocol, RawCompletion, errors  
+│   │   ├── schema.py         # portable-schema check  
+│   │   ├── registry.py       # lazy provider → adapter lookup  
+│   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
+│   ├── retrieval/            # Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
@@ -255,12 +271,16 @@ brandforge/
 | 0005 | Judge model differs from generator | Reduces self-preference bias in scores | Higher eval cost |
 | 0006 | Pydantic contracts at every boundary | Malformed output is caught at the source and retried | Slightly more prompt and schema work |
 | 0007 | Local-first (Chroma, SQLite, YAML) | Clone-and-run in minutes; no infrastructure to explain | Not multi-user; production swaps to Postgres/pgvector |
+| 0008 | Own gateway with one adapter per provider (Claude, Gemini)  | Retry, cost and validation written once; providers swappable by config; no agent framework or MCP in the call path  | We own the glue; adapters must stay behaviourally aligned  |
 
 **Open questions**
 
 * What pass threshold per criterion gives the best quality/cost balance? Decide from eval data on day 5 (starting point: overall ≥ 4.0, no criterion below 3).  
-* Should the critic score variants in parallel (faster) or in one call (cheaper, shared context)? Measure both on day 3\.  
+* Should the critic score variants in parallel (faster) or in one call (cheaper, shared context)? Measure both on day 3.  
 * Is retrieval worth its complexity here? Compare eval scores with and without examples.
+
+* Google recommends its newer Interactions API for new work; the adapter uses generate_content, which is fully supported and not deprecated. Revisit only if BrandForge needs server-side state or built-in tools, which it does not.  
+* Do thinking-enabled models exhaust the default 2,048-token output limit? If a call comes back truncated, raise BRANDFORGE_BUDGETS__MAX_OUTPUT_TOKENS_PER_CALL.
 
 **Path to production (not built)**
 

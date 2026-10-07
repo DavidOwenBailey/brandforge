@@ -73,7 +73,12 @@ class Budgets(BaseModel):
     max_tokens_per_run: int = Field(default=60_000, gt=0)
     max_wall_clock_seconds: int = Field(default=90, gt=0)
     max_revisions: int = Field(default=2, ge=0)
+    # Total attempts per model call (the first try included) when the provider fails
+    # transiently. 3 means one call plus at most two retries.
     max_llm_retries: int = Field(default=3, ge=1)
+    # Backoff between attempts: initial * 2**(n-1) seconds plus up to 1s of jitter, capped.
+    retry_initial_wait_seconds: float = Field(default=1.0, ge=0)
+    retry_max_wait_seconds: float = Field(default=20.0, ge=0)
     max_output_tokens_per_call: int = Field(default=2_048, gt=0)
     request_timeout_seconds: float = Field(default=60.0, gt=0)
 

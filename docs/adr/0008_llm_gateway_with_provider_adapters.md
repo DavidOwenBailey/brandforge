@@ -32,14 +32,20 @@ that must behave identically for every provider:
   (BF-21) needs;
 - refuses response schemas that are not portable across providers (free-form
   `dict` fields);
-- will own retries, budgets and tracing (BF-20, BF-23, BF-25), written once.
+- retries transient provider failures (timeouts, dropped connections, rate limits and
+  5xx) with exponential backoff and jitter, using tenacity (BF-20). `budgets.max_llm_retries`
+  is the total number of attempts, default 3. Nothing else is retried: a refusal, a
+  reply that does not validate or a bad request would fail the same way again;
+- will own budgets and tracing (BF-23, BF-25), written once.
 
 **Provider adapters (one per provider).** An adapter implements `ProviderAdapter`:
 it builds that provider's request, including its structured-output setting, calls
 its SDK and returns a `RawCompletion` (text, token counts and a normalised
 outcome: complete, truncated or refused). It does not validate, cost, retry or
-trace. Its SDK is imported only inside the adapter, and only when a tier points at
-that provider.
+trace. The one thing it does about failures is classify them: a timeout, dropped
+connection, rate limit or 5xx from its SDK is raised as `TransientProviderError`
+(with a `kind`), which is the only error the core retries. Its SDK is imported only
+inside the adapter, and only when a tier points at that provider.
 
 Two adapters exist. Anthropic uses the Messages API with a JSON-schema output config
 and the SDK's own retries switched off (`max_retries=0`). Gemini uses
@@ -89,5 +95,10 @@ if time allows. Adding a provider means an adapter module, a branch in
 - **Known limitation:** only input and output tokens are priced. Gemini thinking
   tokens are counted as output, which is how Gemini bills them. Prompt-cache pricing
   differs by provider and arrives with BF-27.
-- **Known limitation:** provider SDK errors pass through unchanged until BF-20
-  maps them to gateway errors inside each adapter.
+- **Known limitation:** only transient failures are mapped to a gateway error
+  (`TransientProviderError`). Other provider SDK errors, such as a 400 or 401, pass
+  through unchanged and are not retried; the graph's error edge (BF-22) decides how a
+  node failure is recorded. The wait before a retry is computed by the core and does
+  not yet honour a provider's `Retry-After` header.
+- **Known limitation:** a failed attempt returns no response, so it records no usage.
+  Only the call that returns is counted in `Usage`.
