@@ -1,10 +1,12 @@
 """Gemini adapter tests. The Gemini client is faked: no network, no API key, no cost."""
 
+import logging
 from collections.abc import Callable
 from typing import Any, Literal
 
 import httpx
 import pytest
+from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel, Field
 from pydantic_settings import SettingsConfigDict
@@ -114,6 +116,8 @@ def test_request_shape() -> None:
     assert config.system_instruction == "You write ads."
     assert config.max_output_tokens == 777
     assert config.response_mime_type == "application/json"
+    assert config.automatic_function_calling is not None
+    assert config.automatic_function_calling.disable is True
     assert config.http_options.timeout == 12500  # the SDK takes milliseconds
     assert set(config.response_json_schema["properties"]) == {
         "id",
@@ -321,6 +325,39 @@ def test_gateway_does_not_retry_a_bad_request(
 
     assert len(client.models.calls) == 1
     assert sleeps == []
+
+
+def test_real_sdk_does_not_log_the_automatic_function_calling_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Drives the real SDK (HTTP mocked): it warns once per process unless AFC is disabled."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {"role": "model", "parts": [{"text": "{}"}]},
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+            },
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = genai.Client(
+        api_key="test-key-not-real", http_options=types.HttpOptions(httpx_client=http_client)
+    )
+    # The SDK warns only once per process; reset that so the test does not depend on order.
+    monkeypatch.setattr(genai.models.Models, "_logged_afc_warning", False)
+
+    with caplog.at_level(logging.WARNING):
+        result = call(GeminiAdapter(client))
+
+    assert result.outcome == "complete"
+    assert "automatic function calling" not in caplog.text
 
 
 # --- schema conversion -------------------------------------------------------------

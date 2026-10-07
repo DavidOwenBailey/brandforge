@@ -183,6 +183,9 @@ class GeminiAdapter:
     ) -> RawCompletion:
         config = types.GenerateContentConfig(
             system_instruction=system,
+            # BrandForge sends no tools. Left on (the SDK's default), automatic function
+            # calling makes the SDK log a "direct use of AFC" warning on the first call.
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             max_output_tokens=max_output_tokens,
             response_mime_type="application/json",
             response_json_schema=to_gemini_schema(schema),
