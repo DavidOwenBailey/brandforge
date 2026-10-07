@@ -1,4 +1,5 @@
-"""CLI tests. The model is faked by replacing the planner, writer and critic in the graph module."""
+"""CLI tests. The model is faked by replacing the planner, writer, critic and reviser in the
+graph module."""
 
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from typer.testing import CliRunner
 from brandforge import __version__, graph
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
-from brandforge.models import Plan, RunState, Usage, Variant
+from brandforge.models import Critique, Plan, RunState, Usage, Variant
 
 runner = CliRunner()
 
@@ -61,13 +62,24 @@ def _fake_plan(state: RunState) -> dict[str, Any]:
 
 
 def _fake_critique(state: RunState) -> dict[str, Any]:
-    return {"critiques": [], "usage": Usage()}  # zero usage: totals stay the writer's
+    # Every variant passes, so the router assembles and the reviser is never needed.
+    critiques = [
+        Critique(variant_id=v.id, scores={"voice": 5}, overall=5.0, passed=True)
+        for v in state["variants"]
+    ]
+    return {"critiques": critiques, "usage": Usage()}  # zero usage: totals stay the writer's
+
+
+def _fake_revise(state: RunState) -> dict[str, Any]:
+    # A guard: if a CLI test ever needs a revision it must fake one, not reach a real model.
+    raise AssertionError("the reviser should not run in CLI tests")
 
 
 @pytest.fixture(autouse=True)
-def fake_planner_and_critic(monkeypatch: pytest.MonkeyPatch) -> None:
+def fake_planner_critic_and_reviser(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(graph, "plan_brief", _fake_plan)
     monkeypatch.setattr(graph, "critique_variants", _fake_critique)
+    monkeypatch.setattr(graph, "revise_variants", _fake_revise)
 
 
 @pytest.fixture

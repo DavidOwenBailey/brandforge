@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     planner_max_variants_per_channel: int = Field(default=5, ge=1, le=10)
     writer_prompt_version: str = "v1"  # prompts/writer_<version>.md
     critic_prompt_version: str = "v1"  # prompts/critic_<version>.md
+    reviser_prompt_version: str = "v1"  # prompts/reviser_<version>.md
 
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
