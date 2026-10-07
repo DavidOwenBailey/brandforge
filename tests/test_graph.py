@@ -8,6 +8,7 @@ from pydantic_settings import SettingsConfigDict
 from brandforge.brands import load_brand
 from brandforge.config import Settings
 from brandforge.graph import (
+    ASSEMBLER_NODE,
     CRITIC_NODE,
     PLANNER_NODE,
     REVISER_NODE,
@@ -166,6 +167,17 @@ class FakeRevise:
         }
 
 
+class FakeAssemble:
+    """Records the state it is given and returns a fixed status update."""
+
+    def __init__(self) -> None:
+        self.calls: list[RunState] = []
+
+    def __call__(self, state: RunState) -> dict[str, Any]:
+        self.calls.append(state)
+        return {"status": "failed"}
+
+
 def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser() -> None:
     graph = build_graph(FakePlan(), FakeWrite(), FakeCritique(), FakeRevise())
 
@@ -176,6 +188,7 @@ def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser
         WRITER_NODE,
         CRITIC_NODE,
         REVISER_NODE,
+        ASSEMBLER_NODE,
         "__end__",
     }
     edges = {(e.source, e.target) for e in nodes.edges}
@@ -184,8 +197,9 @@ def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser
         (PLANNER_NODE, WRITER_NODE),
         (WRITER_NODE, CRITIC_NODE),
         (CRITIC_NODE, REVISER_NODE),
-        (CRITIC_NODE, "__end__"),
+        (CRITIC_NODE, ASSEMBLER_NODE),
         (REVISER_NODE, CRITIC_NODE),
+        (ASSEMBLER_NODE, "__end__"),
     }
 
 
@@ -207,6 +221,10 @@ def test_run_graph_returns_variants_critiques_and_complete_status(brief: Brief) 
     assert [c.variant_id for c in state["critiques"]] == ["search-1"]
     assert state["errors"] == []
     assert len(write.calls) == 1
+    assert state["result"] is not None
+    assert state["result"].run_id == "run-1"
+    assert state["result"].status == "complete"
+    assert [item.variant.id for item in state["result"].variants] == ["search-1"]
 
 
 def test_writer_receives_the_plan_the_planner_wrote(brief: Brief) -> None:
@@ -246,11 +264,9 @@ def test_writer_errors_are_kept_and_mark_the_run_partial(brief: Brief) -> None:
     assert len(state["variants"]) == 1
 
 
-def test_a_run_that_never_passes_stops_at_the_revision_cap_and_keeps_its_status(
+def test_a_run_that_never_passes_stops_at_the_revision_cap_and_ends_partial_and_flagged(
     brief: Brief,
 ) -> None:
-    # Flagging and the final status belong to the assembler (BF-18); until then the status is
-    # the writer's.
     critique = ScriptedCritique([False])
     revise = FakeRevise()
 
@@ -267,7 +283,11 @@ def test_a_run_that_never_passes_stops_at_the_revision_cap_and_keeps_its_status(
     assert len(critique.calls) == 3
     assert state["revision_count"] == 2
     assert [c.passed for c in state["critiques"]] == [False]
-    assert state["status"] == "complete"
+    assert state["status"] == "partial"
+    assert state["result"] is not None
+    assert state["result"].status == "partial"
+    assert [item.flagged for item in state["result"].variants] == [True]
+    assert state["result"].revision_count == 2
 
 
 def test_a_passing_run_never_calls_the_reviser(brief: Brief) -> None:
@@ -366,6 +386,46 @@ def test_reviser_errors_propagate_until_error_edges_exist(brief: Brief) -> None:
             critique=ScriptedCritique([False]),
             revise=FakeRevise(error=GatewayError("reviser down")),
         )
+
+
+def test_the_assembler_runs_last_and_sees_the_final_state(brief: Brief) -> None:
+    assemble = FakeAssemble()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=ScriptedCritique([False, True]),
+        revise=FakeRevise(),
+        assemble=assemble,
+    )
+
+    assert len(assemble.calls) == 1
+    seen = assemble.calls[0]
+    assert seen["revision_count"] == 1
+    assert [c.passed for c in seen["critiques"]] == [True]
+    assert [v.headline for v in seen["variants"]] == ["H-r1"]
+    assert state["status"] == "failed"  # the fake assembler's update wins; nothing else sets it
+
+
+def test_status_stays_running_until_the_assembler_sets_it(brief: Brief) -> None:
+    seen: list[str] = []
+
+    def spy(state: RunState) -> dict[str, Any]:
+        seen.append(state["status"])
+        return {}
+
+    run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=FakeCritique(),
+        assemble=spy,
+    )
+
+    assert seen == ["running"]
 
 
 def test_usage_from_planner_writer_and_critic_is_summed(brief: Brief) -> None:

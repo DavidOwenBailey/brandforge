@@ -136,6 +136,37 @@ class RunError(_Contract):
 
 
 RunStatus = Literal["running", "complete", "partial", "failed"]
+FinalStatus = Literal["complete", "partial", "failed"]  # what a finished run can end as
+
+
+class VariantResult(_Contract):
+    """One variant in the final result, with its latest critique and whether it is flagged."""
+
+    variant: Variant
+    critique: Critique | None  # None: the variant was never scored
+    flagged: bool  # True: it has no passing critique, so it is not shown to be on brand
+
+
+class RunResult(_Contract):
+    """What a finished run hands back, packaged by the assembler (BF-18).
+
+    It carries the brand and rubric versions so any result can be tied to the exact profile
+    that produced it. The trace ID joins it when tracing lands (BF-25).
+    """
+
+    run_id: NonEmptyStr
+    status: FinalStatus
+    brand_id: NonEmptyStr
+    brand_version: NonEmptyStr
+    rubric_version: NonEmptyStr
+    variants: list[VariantResult]
+    revision_count: int = Field(ge=0)
+    errors: list[RunError]
+    usage: Usage
+
+    @property
+    def flagged_count(self) -> int:
+        return sum(1 for item in self.variants if item.flagged)
 
 
 def add_usage(left: Usage, right: Usage) -> Usage:
@@ -166,6 +197,7 @@ class RunState(TypedDict):
     errors: Annotated[list[RunError], add_errors]
     usage: Annotated[Usage, add_usage]
     status: RunStatus
+    result: RunResult | None
 
 
 def new_run_state(brief: Brief, brand: BrandProfile, *, run_id: str | None = None) -> RunState:
@@ -182,4 +214,5 @@ def new_run_state(brief: Brief, brand: BrandProfile, *, run_id: str | None = Non
         errors=[],
         usage=Usage(),
         status="running",
+        result=None,
     )
