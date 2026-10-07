@@ -1,5 +1,6 @@
 """Gateway core tests. Providers are faked at the adapter boundary: no SDK, no network."""
 
+import logging
 import subprocess
 import sys
 from typing import Any
@@ -8,13 +9,14 @@ import pytest
 from pydantic import BaseModel
 from pydantic_settings import SettingsConfigDict
 
-from brandforge.config import Settings, Tier
+from brandforge.config import Budgets, Settings, Tier
 from brandforge.llm.base import Outcome
 from brandforge.llm.gateway import (
     GatewayConfigError,
     GatewayError,
     RawCompletion,
     StructuredOutputError,
+    TransientProviderError,
     complete_structured,
 )
 from brandforge.models import Critique, Variant
@@ -69,6 +71,34 @@ def completion(
     return RawCompletion(
         text=text, input_tokens=input_tokens, output_tokens=output_tokens, outcome=outcome
     )
+
+
+class ScriptedAdapter:
+    """Plays back one step per call: a completion is returned, an exception is raised."""
+
+    def __init__(self, *steps: RawCompletion | Exception) -> None:
+        self._steps = list(steps)
+        self.call_count = 0
+
+    def complete(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        schema: type[BaseModel],
+        max_output_tokens: int,
+        timeout_seconds: float,
+    ) -> RawCompletion:
+        step = self._steps[self.call_count]
+        self.call_count += 1
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+def retry_settings(**budgets: Any) -> Settings:
+    return IsolatedSettings(budgets=Budgets(**budgets))
 
 
 def test_returns_validated_model_and_usage() -> None:
@@ -232,3 +262,155 @@ def test_importing_the_gateway_does_not_import_any_provider_sdk() -> None:
     )
 
     assert result.stdout.strip() == "[]"
+
+
+# --- retries (BF-20) ---------------------------------------------------------------
+
+
+def test_transient_failures_are_retried_until_the_call_succeeds(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(
+        TransientProviderError("timed out", kind="timeout"),
+        TransientProviderError("429", kind="rate_limit"),
+        completion(),
+    )
+
+    variant, usage = complete_structured(
+        "p", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    assert variant.id == "v1"
+    assert adapter.call_count == 3
+    assert len(sleeps) == 2
+    # Only the call that returned is accounted for: failed attempts produced no usage.
+    assert usage.input_tokens == 100
+    assert usage.output_tokens == 50
+
+
+def test_gives_up_after_max_attempts_and_raises_the_last_error(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(
+        TransientProviderError("first", kind="timeout"),
+        TransientProviderError("second", kind="rate_limit"),
+        TransientProviderError("third", kind="server"),
+        completion(),  # never reached
+    )
+
+    with pytest.raises(TransientProviderError, match="third") as info:
+        complete_structured(
+            "p",
+            Variant,
+            "fast",
+            adapter=adapter,
+            settings=retry_settings(max_llm_retries=3),
+        )
+
+    assert info.value.kind == "server"
+    assert adapter.call_count == 3  # 3 attempts in total, not 3 retries after the first
+    assert len(sleeps) == 2  # no wait after the final attempt
+
+
+def test_a_single_attempt_means_no_retry(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(TransientProviderError("down", kind="server"), completion())
+
+    with pytest.raises(TransientProviderError):
+        complete_structured(
+            "p", Variant, "fast", adapter=adapter, settings=retry_settings(max_llm_retries=1)
+        )
+
+    assert adapter.call_count == 1
+    assert sleeps == []
+
+
+def test_backoff_grows_exponentially_with_jitter(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(
+        *(TransientProviderError("busy", kind="rate_limit") for _ in range(3)), completion()
+    )
+
+    complete_structured(
+        "p",
+        Variant,
+        "fast",
+        adapter=adapter,
+        settings=retry_settings(max_llm_retries=4, retry_initial_wait_seconds=1),
+    )
+
+    # initial * 2**(n-1) plus up to 1s of jitter: 1, 2, 4 seconds as the floor
+    first, second, third = sleeps
+    assert 1 <= first <= 2
+    assert 2 <= second <= 3
+    assert 4 <= third <= 5
+
+
+def test_backoff_is_capped(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(
+        *(TransientProviderError("busy", kind="rate_limit") for _ in range(3)), completion()
+    )
+
+    complete_structured(
+        "p",
+        Variant,
+        "fast",
+        adapter=adapter,
+        settings=retry_settings(max_llm_retries=4, retry_max_wait_seconds=1.5),
+    )
+
+    assert len(sleeps) == 3
+    assert max(sleeps) <= 1.5
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        GatewayConfigError("ANTHROPIC_API_KEY is not set."),
+        RuntimeError("stands in for a provider SDK error such as a 400 or 401"),
+    ],
+)
+def test_other_errors_are_not_retried(error: Exception, sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(error, completion())
+
+    with pytest.raises(type(error)) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert info.value is error
+    assert adapter.call_count == 1
+    assert sleeps == []
+
+
+@pytest.mark.parametrize("outcome", ["truncated", "refused"])
+def test_unusable_replies_are_not_retried(outcome: Outcome, sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(completion('{"id": "v1", "chan', outcome=outcome), completion())
+
+    with pytest.raises(StructuredOutputError):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 1
+    assert sleeps == []
+
+
+def test_invalid_replies_are_not_retried(sleeps: list[float]) -> None:
+    # Re-asking after a validation failure is BF-21, not this retry policy.
+    adapter = ScriptedAdapter(completion("not json"), completion())
+
+    with pytest.raises(StructuredOutputError):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 1
+    assert sleeps == []
+
+
+def test_each_retry_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    adapter = ScriptedAdapter(
+        TransientProviderError("429 from provider", kind="rate_limit"), completion()
+    )
+
+    with caplog.at_level(logging.WARNING, logger="brandforge.llm.gateway"):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    (record,) = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "TransientProviderError" in record.getMessage()
+    assert "429 from provider" in record.getMessage()
+
+
+def test_transient_error_is_a_gateway_error() -> None:
+    assert issubclass(TransientProviderError, GatewayError)
+    assert TransientProviderError("x", kind="timeout").kind == "timeout"

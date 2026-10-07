@@ -9,11 +9,22 @@ This module imports no provider SDK. Provider specifics live in
 `brandforge.llm.adapters`; adding a provider means adding an adapter and a branch
 in `brandforge.llm.registry`, not touching this file.
 
-Later tasks extend this module, not its callers: retries with backoff (BF-20),
-schema-repair re-ask (BF-21), budget checks (BF-23), tracing and caching (BF-25, BF-27).
+Later tasks extend this module, not its callers: schema-repair re-ask (BF-21), budget
+checks (BF-23), tracing and caching (BF-25, BF-27).
 """
 
+import logging
+import time
+from collections.abc import Callable
+
 from pydantic import BaseModel, ValidationError
+from tenacity import (
+    Retrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from brandforge.config import Settings, Tier, TierPrice, get_settings
 from brandforge.llm.base import (
@@ -22,6 +33,7 @@ from brandforge.llm.base import (
     ProviderAdapter,
     RawCompletion,
     StructuredOutputError,
+    TransientProviderError,
 )
 from brandforge.llm.registry import get_adapter
 from brandforge.llm.schema import schema_problems
@@ -33,9 +45,41 @@ __all__ = [
     "ProviderAdapter",
     "RawCompletion",
     "StructuredOutputError",
+    "TransientProviderError",
     "complete_structured",
     "schema_problems",
 ]
+
+
+logger = logging.getLogger(__name__)
+
+
+def _sleep(seconds: float) -> None:
+    # A named seam so tests can replace the wait without patching `time.sleep` globally.
+    time.sleep(seconds)
+
+
+def _call_with_retries(call: Callable[[], RawCompletion], settings: Settings) -> RawCompletion:
+    """Run `call` (one adapter request), retrying transient provider failures with backoff.
+
+    Only `TransientProviderError` is retried: a timeout, dropped connection, rate
+    limit or 5xx, as classified by the adapter. Everything else (a refusal, a reply
+    that does not validate, a bad request, a missing key) would fail the same way
+    again, so it propagates on the first attempt. When the attempts run out the last
+    `TransientProviderError` is raised.
+    """
+    budgets = settings.budgets
+    retrying = Retrying(
+        retry=retry_if_exception_type(TransientProviderError),
+        stop=stop_after_attempt(budgets.max_llm_retries),
+        wait=wait_exponential_jitter(
+            initial=budgets.retry_initial_wait_seconds, max=budgets.retry_max_wait_seconds
+        ),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        sleep=_sleep,
+        reraise=True,
+    )
+    return retrying(call)
 
 
 def _usage_from(raw: RawCompletion, price: TierPrice) -> Usage:
@@ -64,8 +108,10 @@ def complete_structured[T: BaseModel](
         GatewayConfigError: a response schema that is not portable (see
             `schema_problems`), a provider with no adapter, or a missing API key.
         StructuredOutputError: the reply was refused, truncated, or did not validate.
-        Provider SDK errors pass through unchanged for now; BF-20 maps them to
-        gateway errors inside each adapter and adds the retry policy.
+        TransientProviderError: the provider kept timing out, dropping the connection,
+            rate limiting or returning 5xx for `budgets.max_llm_retries` attempts.
+        Any other provider SDK error (a 400 or 401, say) passes through unchanged and
+        is not retried.
     """
     cfg = settings or get_settings()
     ref = cfg.models.resolve(tier)
@@ -79,13 +125,16 @@ def complete_structured[T: BaseModel](
         )
 
     chosen = adapter or get_adapter(ref.provider, cfg)
-    raw = chosen.complete(
-        model=ref.model,
-        prompt=prompt,
-        system=system,
-        schema=schema,
-        max_output_tokens=cfg.budgets.max_output_tokens_per_call,
-        timeout_seconds=cfg.budgets.request_timeout_seconds,
+    raw = _call_with_retries(
+        lambda: chosen.complete(
+            model=ref.model,
+            prompt=prompt,
+            system=system,
+            schema=schema,
+            max_output_tokens=cfg.budgets.max_output_tokens_per_call,
+            timeout_seconds=cfg.budgets.request_timeout_seconds,
+        ),
+        cfg,
     )
     usage = _usage_from(raw, cfg.pricing.for_tier(tier))
 

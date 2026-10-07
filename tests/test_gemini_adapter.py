@@ -1,15 +1,17 @@
 """Gemini adapter tests. The Gemini client is faked: no network, no API key, no cost."""
 
+from collections.abc import Callable
 from typing import Any, Literal
 
+import httpx
 import pytest
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel, Field
 from pydantic_settings import SettingsConfigDict
 
 from brandforge.config import Settings
 from brandforge.llm.adapters.gemini_adapter import GeminiAdapter, to_gemini_schema
-from brandforge.llm.base import GatewayConfigError, Outcome
+from brandforge.llm.base import GatewayConfigError, Outcome, TransientProviderError
 from brandforge.llm.gateway import complete_structured
 from brandforge.models import Variant
 
@@ -26,20 +28,28 @@ class IsolatedSettings(Settings):
 
 
 class FakeModels:
-    def __init__(self, response: types.GenerateContentResponse) -> None:
-        self._response = response
+    """Plays back one outcome per call: a response is returned, an exception is raised.
+
+    The last outcome repeats if the adapter calls more often than outcomes were given.
+    """
+
+    def __init__(self, *outcomes: types.GenerateContentResponse | Exception) -> None:
+        self._outcomes = outcomes
         self.calls: list[dict[str, Any]] = []
 
     def generate_content(
         self, *, model: str, contents: str, config: types.GenerateContentConfig
     ) -> types.GenerateContentResponse:
         self.calls.append({"model": model, "contents": contents, "config": config})
-        return self._response
+        outcome = self._outcomes[min(len(self.calls), len(self._outcomes)) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 class FakeClient:
-    def __init__(self, response: types.GenerateContentResponse) -> None:
-        self.models = FakeModels(response)
+    def __init__(self, *outcomes: types.GenerateContentResponse | Exception) -> None:
+        self.models = FakeModels(*outcomes)
 
 
 def make_response(
@@ -215,6 +225,102 @@ def test_gateway_runs_end_to_end_on_a_gemini_tier(monkeypatch: pytest.MonkeyPatc
     assert variant.headline == "Ride further"
     assert client.models.calls[0]["model"] == "gemini-test-model"
     assert usage.cost_usd == pytest.approx((100 * 0.5 + 50 * 2) / 1e6)
+
+
+# --- error translation and retries (BF-20) -----------------------------------------
+
+
+def api_error(cls: type[errors.APIError], code: int) -> errors.APIError:
+    return cls(code, {"error": {"code": code, "message": "error", "status": "STATUS"}})
+
+
+@pytest.mark.parametrize(
+    ("make_error", "kind"),
+    [
+        (lambda: httpx.ReadTimeout("timed out"), "timeout"),
+        (lambda: httpx.ConnectTimeout("timed out"), "timeout"),
+        (lambda: httpx.ConnectError("refused"), "connection"),
+        (lambda: httpx.RemoteProtocolError("dropped"), "connection"),
+        (lambda: api_error(errors.ClientError, 429), "rate_limit"),
+        (lambda: api_error(errors.ServerError, 500), "server"),
+        (lambda: api_error(errors.ServerError, 503), "server"),  # overloaded
+        (lambda: api_error(errors.ClientError, 408), "server"),
+    ],
+)
+def test_transient_sdk_errors_become_transient_provider_errors(
+    make_error: Callable[[], Exception], kind: str
+) -> None:
+    error = make_error()
+
+    with pytest.raises(TransientProviderError) as info:
+        call(GeminiAdapter(FakeClient(error)))
+
+    assert info.value.kind == kind
+    assert info.value.__cause__ is error
+
+
+@pytest.mark.parametrize(
+    "make_error",
+    [
+        lambda: api_error(errors.ClientError, 400),
+        lambda: api_error(errors.ClientError, 403),
+        lambda: api_error(errors.ClientError, 404),
+    ],
+)
+def test_other_sdk_errors_pass_through_unchanged(
+    make_error: Callable[[], errors.APIError],
+) -> None:
+    error = make_error()
+
+    with pytest.raises(errors.APIError) as info:
+        call(GeminiAdapter(FakeClient(error)))
+
+    assert info.value is error
+
+
+def test_gateway_retries_a_flaky_client_until_it_succeeds(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float]
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_MODELS__FAST", "gemini:gemini-test-model")
+    client = FakeClient(
+        api_error(errors.ServerError, 503),
+        httpx.ReadTimeout("timed out"),
+        make_response([types.Part(text=VALID_VARIANT)]),
+    )
+
+    variant, usage = complete_structured(
+        "write copy",
+        Variant,
+        "fast",
+        adapter=GeminiAdapter(client),
+        settings=IsolatedSettings(),
+    )
+
+    assert variant.headline == "Ride further"
+    assert len(client.models.calls) == 3
+    assert len(sleeps) == 2
+    assert usage.input_tokens == 100  # only the successful call is accounted for
+
+
+def test_gateway_does_not_retry_a_bad_request(
+    monkeypatch: pytest.MonkeyPatch, sleeps: list[float]
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_MODELS__FAST", "gemini:gemini-test-model")
+    client = FakeClient(
+        api_error(errors.ClientError, 400), make_response([types.Part(text=VALID_VARIANT)])
+    )
+
+    with pytest.raises(errors.ClientError):
+        complete_structured(
+            "write copy",
+            Variant,
+            "fast",
+            adapter=GeminiAdapter(client),
+            settings=IsolatedSettings(),
+        )
+
+    assert len(client.models.calls) == 1
+    assert sleeps == []
 
 
 # --- schema conversion -------------------------------------------------------------

@@ -11,7 +11,12 @@ from anthropic.types import Message, MessageParam, OutputConfigParam
 from pydantic import BaseModel
 
 from brandforge.config import Settings
-from brandforge.llm.base import GatewayConfigError, Outcome, RawCompletion
+from brandforge.llm.base import (
+    GatewayConfigError,
+    Outcome,
+    RawCompletion,
+    TransientProviderError,
+)
 
 
 class _MessagesAPI(Protocol):
@@ -39,7 +44,7 @@ class AnthropicClient(Protocol):
 @lru_cache
 def _anthropic_client(api_key: str) -> anthropic.Anthropic:
     # max_retries=0: the SDK's own retries would hide failures from our budget and
-    # tracing. Retry policy belongs in the gateway core (BF-20), in one place.
+    # tracing. Retry policy belongs in the gateway core, in one place.
     return anthropic.Anthropic(api_key=api_key, max_retries=0)
 
 
@@ -49,6 +54,22 @@ def _outcome_from(stop_reason: str | None) -> Outcome:
     if stop_reason == "refusal":
         return "refused"
     return "complete"
+
+
+def _transient_from(exc: anthropic.APIError) -> TransientProviderError | None:
+    """Classify an SDK error as retryable, or None if repeating the call would not help."""
+    # APITimeoutError subclasses APIConnectionError, so it must be checked first.
+    if isinstance(exc, anthropic.APITimeoutError):
+        return TransientProviderError("Anthropic request timed out.", kind="timeout")
+    if isinstance(exc, anthropic.APIConnectionError):
+        return TransientProviderError("Could not reach the Anthropic API.", kind="connection")
+    if isinstance(exc, anthropic.RateLimitError):
+        return TransientProviderError("Anthropic rate limit reached (429).", kind="rate_limit")
+    if isinstance(exc, anthropic.APIStatusError) and (
+        exc.status_code >= 500 or exc.status_code == 408
+    ):
+        return TransientProviderError(f"Anthropic server error ({exc.status_code}).", kind="server")
+    return None
 
 
 class AnthropicAdapter:
@@ -81,14 +102,20 @@ class AnthropicAdapter:
                 f"{schema.__name__} cannot be expressed as an Anthropic response schema: {exc}"
             ) from exc
 
-        response = self._client.messages.create(
-            model=model,
-            max_tokens=max_output_tokens,
-            system=system if system is not None else anthropic.omit,
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"format": {"type": "json_schema", "schema": json_schema}},
-            timeout=timeout_seconds,
-        )
+        try:
+            response = self._client.messages.create(
+                model=model,
+                max_tokens=max_output_tokens,
+                system=system if system is not None else anthropic.omit,
+                messages=[{"role": "user", "content": prompt}],
+                output_config={"format": {"type": "json_schema", "schema": json_schema}},
+                timeout=timeout_seconds,
+            )
+        except anthropic.APIError as exc:
+            transient = _transient_from(exc)
+            if transient is None:
+                raise
+            raise transient from exc
         text = "".join(block.text for block in response.content if block.type == "text")
         return RawCompletion(
             text=text,

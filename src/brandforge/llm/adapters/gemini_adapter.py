@@ -6,12 +6,18 @@ This is the only module in the gateway that imports the `google.genai` SDK.
 from functools import lru_cache
 from typing import Any, Protocol
 
+import httpx
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel
 
 from brandforge.config import Settings
-from brandforge.llm.base import GatewayConfigError, Outcome, RawCompletion
+from brandforge.llm.base import (
+    GatewayConfigError,
+    Outcome,
+    RawCompletion,
+    TransientProviderError,
+)
 
 # The JSON Schema keywords Gemini's `response_json_schema` supports. Anything else
 # Pydantic emits (minLength, default, propertyNames, ...) is dropped here. That is
@@ -109,7 +115,7 @@ class GeminiClient(Protocol):
 @lru_cache
 def _gemini_client(api_key: str) -> genai.Client:
     # No retry options are set, and the SDK's default is "never retry". Retry policy
-    # belongs in the gateway core (BF-20), in one place.
+    # belongs in the gateway core, in one place.
     return genai.Client(api_key=api_key)
 
 
@@ -134,6 +140,22 @@ def _text_from(response: types.GenerateContentResponse) -> str:
     parts = (content.parts if content else None) or []
     # Thought summaries are not part of the answer.
     return "".join(part.text for part in parts if part.text and not part.thought)
+
+
+def _transient_from(exc: Exception) -> TransientProviderError | None:
+    """Classify an SDK error as retryable, or None if repeating the call would not help."""
+    # The SDK lets httpx's transport errors through unwrapped. TimeoutException is a
+    # TransportError, so it must be checked first.
+    if isinstance(exc, httpx.TimeoutException):
+        return TransientProviderError("Gemini request timed out.", kind="timeout")
+    if isinstance(exc, httpx.TransportError):
+        return TransientProviderError("Could not reach the Gemini API.", kind="connection")
+    if isinstance(exc, errors.APIError):
+        if exc.code == 429:
+            return TransientProviderError("Gemini rate limit reached (429).", kind="rate_limit")
+        if exc.code >= 500 or exc.code == 408:
+            return TransientProviderError(f"Gemini server error ({exc.code}).", kind="server")
+    return None
 
 
 class GeminiAdapter:
@@ -166,7 +188,15 @@ class GeminiAdapter:
             response_json_schema=to_gemini_schema(schema),
             http_options=types.HttpOptions(timeout=max(1, round(timeout_seconds * 1000))),
         )
-        response = self._client.models.generate_content(model=model, contents=prompt, config=config)
+        try:
+            response = self._client.models.generate_content(
+                model=model, contents=prompt, config=config
+            )
+        except (errors.APIError, httpx.TransportError) as exc:
+            transient = _transient_from(exc)
+            if transient is None:
+                raise
+            raise transient from exc
 
         usage = response.usage_metadata
         # Thinking tokens are billed as output, so they count as output here.
