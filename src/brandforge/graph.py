@@ -1,8 +1,9 @@
 """The LangGraph pipeline: nodes, edges and the entry point the CLI and evals call.
 
-The graph runs the planner (BF-13) and then a node that still wraps the single-prompt
-baseline, so the walking skeleton keeps working end to end. The baseline ignores the plan
-until the writer replaces it (BF-14); the critic, router and reviser follow (BF-15 to BF-17).
+The graph runs the planner (BF-13) and then the writer (BF-14). The critic, router and reviser
+follow (BF-15 to BF-17) and the assembler (BF-18) will own the final status; until then the
+writer's node marks the run `complete`, or `partial` if the writer recorded errors. The
+single-prompt baseline is no longer part of the graph: the evals call it directly.
 """
 
 from collections.abc import Callable
@@ -12,40 +13,38 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from brandforge.agents.planner import plan_brief
-from brandforge.baseline import generate_baseline
-from brandforge.models import BrandProfile, Brief, RunState, Usage, Variant, new_run_state
+from brandforge.agents.writer import write_variants
+from brandforge.models import BrandProfile, Brief, RunState, new_run_state
 
-# Same shape as `generate_baseline`; tests pass a fake.
-Generator = Callable[[Brief, BrandProfile], tuple[list[Variant], Usage]]
-# Same shape as `plan_brief`: reads state, returns a partial state update.
-Planner = Callable[[RunState], dict[str, Any]]
+# Same shape as `plan_brief` and `write_variants`: read state, return a partial state update.
+Node = Callable[[RunState], dict[str, Any]]
 
 PLANNER_NODE = "planner"
-BASELINE_NODE = "baseline"
+WRITER_NODE = "writer"
 
 
 def build_graph(
-    generate: Generator | None = None,
-    plan: Planner | None = None,
+    plan: Node | None = None,
+    write: Node | None = None,
 ) -> CompiledStateGraph[RunState, None, RunState, RunState]:
-    """Compile the graph. `generate` and `plan` default to the real baseline generator and
-    planner, looked up at call time so tests can replace them."""
-    generator = generate or generate_baseline
+    """Compile the graph. `plan` and `write` default to the real agents, looked up at call
+    time so tests can replace them."""
     planner = plan or plan_brief
+    writer = write or write_variants
 
     def planner_node(state: RunState) -> dict[str, Any]:
         return planner(state)
 
-    def baseline_node(state: RunState) -> dict[str, Any]:
-        variants, usage = generator(state["brief"], state["brand"])
-        return {"variants": variants, "usage": usage, "status": "complete"}
+    def writer_node(state: RunState) -> dict[str, Any]:
+        update = writer(state)
+        return {**update, "status": "partial" if update.get("errors") else "complete"}
 
     builder = StateGraph(RunState)
     builder.add_node(PLANNER_NODE, planner_node)
-    builder.add_node(BASELINE_NODE, baseline_node)
+    builder.add_node(WRITER_NODE, writer_node)
     builder.add_edge(START, PLANNER_NODE)
-    builder.add_edge(PLANNER_NODE, BASELINE_NODE)
-    builder.add_edge(BASELINE_NODE, END)
+    builder.add_edge(PLANNER_NODE, WRITER_NODE)
+    builder.add_edge(WRITER_NODE, END)
     return builder.compile()
 
 
@@ -53,10 +52,10 @@ def run_graph(
     brief: Brief,
     brand: BrandProfile,
     *,
-    generate: Generator | None = None,
-    plan: Planner | None = None,
+    plan: Node | None = None,
+    write: Node | None = None,
     run_id: str | None = None,
 ) -> RunState:
     """Run one brief through the graph and return the final state."""
-    graph = build_graph(generate, plan)
+    graph = build_graph(plan, write)
     return cast(RunState, graph.invoke(new_run_state(brief, brand, run_id=run_id)))
