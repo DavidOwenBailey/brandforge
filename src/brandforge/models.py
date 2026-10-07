@@ -1,5 +1,6 @@
 """Pydantic data contracts for every boundary in BrandForge."""
 
+import time
 from typing import Annotated, Literal, TypedDict
 from uuid import uuid4
 
@@ -204,10 +205,23 @@ class RunState(TypedDict):
     usage: Annotated[Usage, add_usage]
     status: RunStatus
     result: RunResult | None
+    started_at: (
+        float  # seconds since the epoch when the run began; the wall-clock budget runs from it
+    )
 
 
-def new_run_state(brief: Brief, brand: BrandProfile, *, run_id: str | None = None) -> RunState:
-    """The initial state for a run: inputs filled in, everything else empty."""
+def new_run_state(
+    brief: Brief,
+    brand: BrandProfile,
+    *,
+    run_id: str | None = None,
+    started_at: float | None = None,
+) -> RunState:
+    """The initial state for a run: inputs filled in, everything else empty.
+
+    `started_at` defaults to now. It is the one thing a node cannot recompute, which is why it
+    lives in state: the router and the gateway both measure the wall-clock budget from it.
+    """
     return RunState(
         run_id=run_id or uuid4().hex,
         brief=brief,
@@ -221,4 +235,5 @@ def new_run_state(brief: Brief, brand: BrandProfile, *, run_id: str | None = Non
         usage=Usage(),
         status="running",
         result=None,
+        started_at=time.time() if started_at is None else started_at,
     )

@@ -72,5 +72,7 @@ What each failure leaves behind:
 - **Trade-off accepted:** catching `Exception` turns a programming bug in a node into a
   recorded error as well. It is logged with the node name, and the unit tests call the agents
   directly, so bugs surface there.
-- **Not covered here:** the token and time budgets (BF-23) and checkpointing (BF-24). The
-  trace span for a failed node arrives with BF-25.
+- **Not covered here:** checkpointing (BF-24). The trace span for a failed node arrives with
+  BF-25.
+- **Extended in BF-23:** the guard also installs the run budget around each node, and keeps the
+  usage of a `BudgetExceededError` as it does for a `StructuredOutputError` (0017).

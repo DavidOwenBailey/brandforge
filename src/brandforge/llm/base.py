@@ -39,6 +39,24 @@ class TransientProviderError(GatewayError):
         self.kind = kind
 
 
+BudgetKind = Literal["tokens", "time"]
+
+
+class BudgetExceededError(GatewayError):
+    """The run's token or wall-clock budget is used up, so the next model call was not made.
+
+    Raised by the gateway before a call, never after one: nothing is retried or repaired,
+    because the budget would still be spent. `usage` is everything the node that hit the limit
+    had already spent through the run budget, which the graph's error edge adds to the run
+    total (those calls were paid for even though the node produced nothing).
+    """
+
+    def __init__(self, message: str, *, kind: BudgetKind, usage: Usage) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.usage = usage
+
+
 class StructuredOutputError(GatewayError):
     """The model replied, but not with a valid instance of the requested schema.
 

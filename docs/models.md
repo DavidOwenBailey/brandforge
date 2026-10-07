@@ -18,17 +18,17 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 | **VariantResult** | One variant in the final result: the variant, its latest critique (or none if it was never scored) and whether it is flagged. | Assembler (BF-18) | CLI, API, evals |
 | **RunResult** | What a finished run hands back: final status, brand and rubric versions, one `VariantResult` per variant, revision count, errors and total usage. `flagged_count` says how many variants are not shown to be on brand. | Assembler (BF-18) | CLI, API, evals |
 | **RunError** | A failure recorded in state (node, message and `fatal`), so a run can still end in a defined status. `fatal` is set by the graph's error edges when a node raised and the run was sent to the assembler; a non-fatal error is a warning the run carried on past. | Writer (warnings), graph error guard (BF-22) | Assembler, CLI |
-| **RunState** | The `TypedDict` that is the single source of truth for a run (`result` stays `None` until the assembler fills it). `usage` and `errors` carry reducers (`add_usage`, `add_errors`), so a node returns only its own usage or new errors and the graph accumulates them. `new_run_state` builds the initial state. | Graph entry point | Every node |
+| **RunState** | The `TypedDict` that is the single source of truth for a run (`result` stays `None` until the assembler fills it; `started_at` is when the run began, in epoch seconds, and is what the wall-clock budget runs from). `usage` and `errors` carry reducers (`add_usage`, `add_errors`), so a node returns only its own usage or new errors and the graph accumulates them. `new_run_state` builds the initial state. | Graph entry point | Every node |
 
 ### **How they flow**
 
 1. A **Brief** and a **BrandProfile** enter the run and form the input half of the state.  
 2. The writer turns them into **Variants**, validated against the schema as they come back from the model.  
 3. The critic scores each variant against the brand's **Rubric** and returns **Critiques**.  
-4. The router (plain code) reads the critiques: if every variant passes, it assembles; if some fail, it routes them to the reviser, capped at two passes, and when the cap or the token budget is reached it stops and assembles what exists.  
+4. The router (plain code) reads the critiques: if every variant passes, it assembles; if some fail, it routes them to the reviser, capped at two passes, and when the cap, the token budget or the wall-clock budget is reached it stops and assembles what exists.  
 5. The reviser rewrites only failing variants using each critique's `fixes`.  
 6. The assembler packages the variants, their critiques, flags, errors and usage into a **RunResult** and sets the final status.  
-7. Every gateway call returns a **Usage**. These are summed into the run's total, which enforces the token budget and is reported with the result.
+7. Every gateway call returns a **Usage**. These are summed into the run's total, which is reported with the result and counts against the token budget. Inside a node the gateway checks the run budget (tokens and time) before every model call and stops the node with `BudgetExceededError` once it is used up (BF-23, ADR 0017).
 
 ### **Why this design**
 

@@ -1,5 +1,8 @@
 """Router tests. The router is a pure function, so every case is hand-built state."""
 
+import logging
+
+import pytest
 from pydantic_settings import SettingsConfigDict
 
 from brandforge.brands.loader import load_brand
@@ -28,20 +31,27 @@ def _critique(variant_id: str, *, passed: bool) -> Critique:
     )
 
 
+START = 1_000.0  # when a time test's run began; `route(now=...)` says what time it is
+
+
 def _state(
     results: dict[str, bool],
     *,
     revision_count: int = 0,
     tokens: int = 0,
+    started_at: float | None = None,
 ) -> RunState:
-    """State with one variant and critique per entry in `results` (id -> passed)."""
+    """State with one variant and critique per entry in `results` (id -> passed).
+
+    The run started just now unless `started_at` says otherwise.
+    """
     brief = Brief(
         product="Commuter e-bike",
         audience="city commuters",
         objective="conversion",
         channels=["search"],
     )
-    state = new_run_state(brief, load_brand("voltride"))
+    state = new_run_state(brief, load_brand("voltride"), started_at=started_at)
     state["variants"] = [_variant(variant_id) for variant_id in results]
     state["critiques"] = [_critique(vid, passed=passed) for vid, passed in results.items()]
     state["revision_count"] = revision_count
@@ -154,9 +164,97 @@ def test_route_does_not_change_the_state() -> None:
 
 
 def test_defaults_use_the_documented_limits() -> None:
-    # Out of the box: two revisions, 60k tokens. Guards against the defaults drifting.
+    # Out of the box: two revisions, 60k tokens, 90 seconds. Guards against the defaults drifting.
     settings = IsolatedSettings()
 
     assert route(_state({"a": False}, revision_count=1), settings=settings) == "revise"
     assert route(_state({"a": False}, revision_count=2), settings=settings) == "stop"
     assert route(_state({"a": False}, tokens=60_000), settings=settings) == "stop"
+    assert route(_timed(), settings=settings, now=START + 89) == "revise"
+    assert route(_timed(), settings=settings, now=START + 90) == "stop"
+
+
+# --- the wall-clock budget (BF-23) -------------------------------------------------
+
+
+def _timed(*, started_at: float = START) -> RunState:
+    """One failing variant, in a run that began at `started_at` (default `START`)."""
+    return _state({"a": False}, started_at=started_at)
+
+
+def test_stops_when_the_wall_clock_budget_is_reached() -> None:
+    settings = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=90))
+
+    assert route(_timed(), settings=settings, now=START + 90) == "stop"
+    assert route(_timed(), settings=settings, now=START + 500) == "stop"
+
+
+def test_revises_while_the_wall_clock_budget_has_room() -> None:
+    settings = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=90))
+
+    assert route(_timed(), settings=settings, now=START) == "revise"
+    assert route(_timed(), settings=settings, now=START + 89.9) == "revise"
+
+
+def test_the_wall_clock_limit_comes_from_settings() -> None:
+    short = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=10))
+    long = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=600))
+
+    assert route(_timed(), settings=short, now=START + 30) == "stop"
+    assert route(_timed(), settings=long, now=START + 30) == "revise"
+
+
+def test_time_is_measured_from_when_the_run_started() -> None:
+    settings = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=90))
+    began_earlier = _timed(started_at=START - 80)
+
+    assert route(began_earlier, settings=settings, now=START + 9) == "revise"
+    assert route(began_earlier, settings=settings, now=START + 10) == "stop"
+
+
+def test_all_passing_assembles_even_when_out_of_time() -> None:
+    settings = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=90))
+    state = _state({"a": True}, started_at=START)
+
+    assert route(state, settings=settings, now=START + 9_999) == "assemble"
+
+
+def test_without_a_given_time_it_uses_the_real_clock() -> None:
+    # A run that began in 1970 has long run out of time; one that has just begun has not.
+    assert route(_timed(), settings=IsolatedSettings()) == "stop"
+    assert route(_state({"a": False}), settings=IsolatedSettings()) == "revise"
+
+
+def test_the_revision_cap_still_applies_when_there_is_time_and_tokens() -> None:
+    state = _state({"a": False}, revision_count=2, started_at=START)
+
+    assert route(state, settings=IsolatedSettings(), now=START) == "stop"
+
+
+def test_a_budget_stop_is_logged_with_its_reason(caplog: pytest.LogCaptureFixture) -> None:
+    out_of_time = IsolatedSettings(budgets=Budgets(max_wall_clock_seconds=90))
+    out_of_tokens = IsolatedSettings(budgets=Budgets(max_tokens_per_run=1_000))
+    over_tokens = _state({"a": False}, tokens=1_200, started_at=START)
+
+    with caplog.at_level(logging.WARNING, logger="brandforge.router"):
+        route(_timed(), settings=out_of_time, now=START + 95)
+        route(over_tokens, settings=out_of_tokens, now=START)
+
+    time_message, token_message = (record.getMessage() for record in caplog.records)
+    assert "wall-clock budget reached" in time_message
+    assert "95.0s of 90s" in time_message
+    assert "token budget reached" in token_message
+    assert "1,200 of 1,000" in token_message
+
+
+def test_stopping_on_the_revision_cap_or_with_everything_passing_is_not_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    capped = _state({"a": False}, revision_count=2, started_at=START)
+    passing = _state({"a": True}, started_at=START)
+
+    with caplog.at_level(logging.WARNING, logger="brandforge.router"):
+        route(capped, settings=IsolatedSettings(), now=START)
+        route(passing, settings=IsolatedSettings(), now=START + 9_999)
+
+    assert caplog.records == []

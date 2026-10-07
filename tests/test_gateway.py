@@ -9,9 +9,12 @@ import pytest
 from pydantic import BaseModel
 from pydantic_settings import SettingsConfigDict
 
+from brandforge.budget import RunBudget, active_budget
 from brandforge.config import Budgets, Settings, Tier
+from brandforge.llm import gateway
 from brandforge.llm.base import Outcome
 from brandforge.llm.gateway import (
+    BudgetExceededError,
     GatewayConfigError,
     GatewayError,
     RawCompletion,
@@ -19,7 +22,7 @@ from brandforge.llm.gateway import (
     TransientProviderError,
     complete_structured,
 )
-from brandforge.models import Critique, Variant
+from brandforge.models import Critique, Usage, Variant
 
 VALID_VARIANT = (
     '{"id": "v1", "channel": "search", "headline": "Ride further", '
@@ -555,3 +558,179 @@ def test_each_repair_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     assert record.levelno == logging.WARNING
     assert "Variant" in record.getMessage()
     assert BAD_CHANNEL not in record.getMessage()  # replies stay out of the logs
+
+
+# --- run budget (BF-23) ------------------------------------------------------------
+
+CALL_TOKENS = 150  # every `completion()` is 100 in + 50 out
+
+
+class FakeClock:
+    """A clock the test moves by hand: call it for the time, `advance` to move it on."""
+
+    def __init__(self, now: float = 1_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def run_budget(
+    clock: FakeClock, *, max_tokens: int = 1_000, max_seconds: float = 90, tokens_before: int = 0
+) -> RunBudget:
+    return RunBudget(
+        max_tokens=max_tokens,
+        max_seconds=max_seconds,
+        started_at=clock.now,
+        tokens_before=tokens_before,
+        clock=clock,
+    )
+
+
+def test_with_no_budget_installed_nothing_is_checked() -> None:
+    # The baseline generator and one-off scripts have no run budget: no limit applies to them.
+    adapter = ScriptedAdapter(
+        completion(input_tokens=10**9), completion(input_tokens=10**9), completion()
+    )
+
+    for _ in range(3):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 3
+
+
+def test_the_usage_of_every_call_is_recorded_into_the_run_budget() -> None:
+    budget = run_budget(FakeClock())
+    adapter = ScriptedAdapter(completion(), completion())
+
+    with active_budget(budget):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert budget.spent.input_tokens == 200
+    assert budget.spent.output_tokens == 100
+    assert budget.spent.cost_usd == pytest.approx(2 * FAST_CALL_COST)
+    assert budget.tokens_used == 2 * CALL_TOKENS
+
+
+def test_an_invalid_reply_and_its_repair_are_both_recorded() -> None:
+    budget = run_budget(FakeClock())
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    with active_budget(budget):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert budget.spent.input_tokens == 200
+
+
+def test_an_unusable_reply_is_still_recorded() -> None:
+    budget = run_budget(FakeClock())
+    adapter = ScriptedAdapter(completion('{"id": "v1", "chan', outcome="truncated"))
+
+    with active_budget(budget), pytest.raises(StructuredOutputError):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert budget.spent.output_tokens == 50
+
+
+def test_an_exhausted_token_budget_stops_the_call_before_it_is_made(sleeps: list[float]) -> None:
+    budget = run_budget(FakeClock(), max_tokens=1_000, tokens_before=1_000)
+    adapter = ScriptedAdapter(completion())
+
+    with active_budget(budget), pytest.raises(BudgetExceededError) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 0
+    assert info.value.kind == "tokens"
+    assert info.value.usage == Usage()  # this node had spent nothing yet
+    assert sleeps == []  # not retried
+
+
+def test_the_budget_can_run_out_between_two_calls_of_one_node() -> None:
+    # Each call is 150 tokens; the limit is 250. The second call starts under it and ends over it.
+    budget = run_budget(FakeClock(), max_tokens=250)
+    adapter = ScriptedAdapter(completion(), completion(), completion())
+
+    with active_budget(budget):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+        with pytest.raises(BudgetExceededError) as info:
+            complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 2
+    assert info.value.kind == "tokens"
+    assert info.value.usage.input_tokens == 200  # what the two calls that were made cost
+    assert info.value.usage.output_tokens == 100
+
+
+def test_tokens_spent_by_earlier_nodes_count_before_the_first_call() -> None:
+    budget = run_budget(FakeClock(), max_tokens=1_000, tokens_before=900)
+    adapter = ScriptedAdapter(completion(), completion())
+
+    with active_budget(budget):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+        with pytest.raises(BudgetExceededError):
+            complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 1
+
+
+def test_no_repair_is_made_once_the_invalid_reply_used_up_the_budget() -> None:
+    budget = run_budget(FakeClock(), max_tokens=CALL_TOKENS)
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    with active_budget(budget), pytest.raises(BudgetExceededError) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 1  # the repair would have been a second call
+    assert info.value.usage.input_tokens == 100  # the invalid reply was paid for
+
+
+def test_an_exhausted_time_budget_stops_the_call_before_it_is_made() -> None:
+    clock = FakeClock()
+    budget = run_budget(clock, max_seconds=90)
+    clock.advance(90)
+    adapter = ScriptedAdapter(completion())
+
+    with active_budget(budget), pytest.raises(BudgetExceededError) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 0
+    assert info.value.kind == "time"
+
+
+def test_a_retry_does_not_start_once_the_backoff_has_used_up_the_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    budget = run_budget(clock, max_seconds=90)
+
+    def sleep_past_the_limit(seconds: float) -> None:
+        clock.advance(100)
+
+    monkeypatch.setattr(gateway, "_sleep", sleep_past_the_limit)
+    adapter = ScriptedAdapter(TransientProviderError("429", kind="rate_limit"), completion())
+
+    with active_budget(budget), pytest.raises(BudgetExceededError) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert adapter.call_count == 1  # the second attempt was never made
+    assert info.value.kind == "time"
+
+
+def test_a_budget_that_still_has_room_changes_nothing_about_the_call() -> None:
+    adapter = FakeAdapter(completion())
+    settings = IsolatedSettings()
+
+    with active_budget(run_budget(FakeClock())):
+        variant, usage = complete_structured(
+            "write copy", Variant, "strong", adapter=adapter, settings=settings
+        )
+
+    assert variant.id == "v1"
+    assert usage.input_tokens == 100
+    (call,) = adapter.calls
+    assert call["timeout_seconds"] == settings.budgets.request_timeout_seconds
