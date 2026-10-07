@@ -1,6 +1,7 @@
-"""CLI tests. The model is faked by replacing `generate_baseline` in the graph module."""
+"""CLI tests. The model is faked by replacing the planner and baseline in the graph module."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -8,7 +9,7 @@ from typer.testing import CliRunner
 from brandforge import __version__, graph
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
-from brandforge.models import BrandProfile, Brief, Usage, Variant
+from brandforge.models import BrandProfile, Brief, Plan, RunState, Usage, Variant
 
 runner = CliRunner()
 
@@ -45,6 +46,21 @@ class FakeGenerate:
             raise self.error
         usage = Usage(input_tokens=120, output_tokens=80, cost_usd=0.0012)
         return [_variant(1), _variant(2, "social")], usage
+
+
+def _fake_plan(state: RunState) -> dict[str, Any]:
+    plan = Plan(
+        audience="commuters",
+        angle="save time",
+        channels=list(state["brief"].channels),
+        variants_per_channel=2,
+    )
+    return {"plan": plan, "usage": Usage()}  # zero usage keeps the printed totals the generator's
+
+
+@pytest.fixture(autouse=True)
+def fake_planner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(graph, "plan_brief", _fake_plan)
 
 
 @pytest.fixture
