@@ -50,5 +50,6 @@ and a `partial` status.
   limit could have had.
 - **Not covered here:** the wall-clock limit. State has no start time, so BF-23 adds that check
   where the clock is available.
-- **Not wired yet:** the graph still ends at the critic. BF-17 adds the reviser and the
-  conditional edges that call `route`.
+- **Wired in BF-17:** the graph calls `route` on a conditional edge after the critic, sending
+  `revise` to the reviser (ADR 0014). `assemble` and `stop` both go to the end until the
+  assembler (BF-18) exists.

@@ -1,10 +1,12 @@
 """The LangGraph pipeline: nodes, edges and the entry point the CLI and evals call.
 
-The graph runs the planner (BF-13), the writer (BF-14) and the brand critic (BF-15). The router
-and reviser follow (BF-16, BF-17) and the assembler (BF-18) will own the final status; until
-then the writer's node marks the run `complete`, or `partial` if the writer recorded errors,
-and the critic's scores are recorded in `critiques` without changing the status. The
-single-prompt baseline is no longer part of the graph: the evals call it directly.
+The graph runs the planner (BF-13), the writer (BF-14) and the brand critic (BF-15). After the
+critic, the router (BF-16) decides: `revise` goes to the reviser (BF-17) and back to the critic,
+at most `budgets.max_revisions` times; `assemble` and `stop` both end the run for now. The
+assembler (BF-18) will sit there and own the final status; until then the writer's node marks
+the run `complete`, or `partial` if the writer recorded errors, and neither the critic nor the
+reviser changes it. The single-prompt baseline is no longer part of the graph: the evals call
+it directly.
 """
 
 from collections.abc import Callable
@@ -15,8 +17,10 @@ from langgraph.graph.state import CompiledStateGraph
 
 from brandforge.agents.critic import critique_variants
 from brandforge.agents.planner import plan_brief
+from brandforge.agents.reviser import revise_variants
 from brandforge.agents.writer import write_variants
 from brandforge.models import BrandProfile, Brief, RunState, new_run_state
+from brandforge.router import RouteAction, route
 
 # Same shape as the agents: read state, return a partial state update.
 Node = Callable[[RunState], dict[str, Any]]
@@ -24,18 +28,25 @@ Node = Callable[[RunState], dict[str, Any]]
 PLANNER_NODE = "planner"
 WRITER_NODE = "writer"
 CRITIC_NODE = "critic"
+REVISER_NODE = "reviser"
+
+
+def _after_critic(state: RunState) -> RouteAction:
+    return route(state)
 
 
 def build_graph(
     plan: Node | None = None,
     write: Node | None = None,
     critique: Node | None = None,
+    revise: Node | None = None,
 ) -> CompiledStateGraph[RunState, None, RunState, RunState]:
-    """Compile the graph. `plan`, `write` and `critique` default to the real agents, looked up
-    at call time so tests can replace them."""
+    """Compile the graph. `plan`, `write`, `critique` and `revise` default to the real agents,
+    looked up at call time so tests can replace them."""
     planner = plan or plan_brief
     writer = write or write_variants
     critic = critique or critique_variants
+    reviser = revise or revise_variants
 
     def planner_node(state: RunState) -> dict[str, Any]:
         return planner(state)
@@ -47,14 +58,23 @@ def build_graph(
     def critic_node(state: RunState) -> dict[str, Any]:
         return critic(state)
 
+    def reviser_node(state: RunState) -> dict[str, Any]:
+        return reviser(state)
+
     builder = StateGraph(RunState)
     builder.add_node(PLANNER_NODE, planner_node)
     builder.add_node(WRITER_NODE, writer_node)
     builder.add_node(CRITIC_NODE, critic_node)
+    builder.add_node(REVISER_NODE, reviser_node)
     builder.add_edge(START, PLANNER_NODE)
     builder.add_edge(PLANNER_NODE, WRITER_NODE)
     builder.add_edge(WRITER_NODE, CRITIC_NODE)
-    builder.add_edge(CRITIC_NODE, END)
+    builder.add_conditional_edges(
+        CRITIC_NODE,
+        _after_critic,
+        {"revise": REVISER_NODE, "assemble": END, "stop": END},
+    )
+    builder.add_edge(REVISER_NODE, CRITIC_NODE)
     return builder.compile()
 
 
@@ -65,8 +85,9 @@ def run_graph(
     plan: Node | None = None,
     write: Node | None = None,
     critique: Node | None = None,
+    revise: Node | None = None,
     run_id: str | None = None,
 ) -> RunState:
     """Run one brief through the graph and return the final state."""
-    graph = build_graph(plan, write, critique)
+    graph = build_graph(plan, write, critique, revise)
     return cast(RunState, graph.invoke(new_run_state(brief, brand, run_id=run_id)))
