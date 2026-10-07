@@ -13,8 +13,12 @@ A reply that does not validate gets one repair attempt (BF-21): the call is repe
 with the model's own reply and the validation errors in the prompt. Every call made,
 failed ones included, is added to the returned `Usage`.
 
-Later tasks extend this module, not its callers: budget checks (BF-23), tracing and
-caching (BF-25, BF-27).
+When a run budget is installed (BF-23, see `brandforge.budget`), the gateway checks it before
+every attempt, retries and repairs included, and records the usage of every reply into it. A
+budget that is used up raises `BudgetExceededError` before the call is made. With no budget
+installed nothing is checked.
+
+Later tasks extend this module, not its callers: tracing and caching (BF-25, BF-27).
 """
 
 import logging
@@ -30,8 +34,10 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from brandforge.budget import current_budget
 from brandforge.config import Settings, Tier, TierPrice, get_settings
 from brandforge.llm.base import (
+    BudgetExceededError,
     GatewayConfigError,
     GatewayError,
     ProviderAdapter,
@@ -45,6 +51,7 @@ from brandforge.models import Usage
 from brandforge.prompts.loader import load_prompt, render_prompt
 
 __all__ = [
+    "BudgetExceededError",
     "GatewayConfigError",
     "GatewayError",
     "ProviderAdapter",
@@ -121,6 +128,9 @@ def complete_structured[T: BaseModel](
             are those of the last reply, and its `usage` covers every call made.
         TransientProviderError: the provider kept timing out, dropping the connection,
             rate limiting or returning 5xx for `budgets.max_llm_retries` attempts.
+        BudgetExceededError: the run's token or wall-clock budget was used up before an
+            attempt (the first call, a retry or a repair), so that call was not made. Only
+            raised inside a run budget; its `usage` is what the node had spent so far.
         Any other provider SDK error (a 400 or 401, say) passes through unchanged and
         is not retried.
     """
@@ -176,19 +186,29 @@ def _complete_once[T: BaseModel](
 
     On any unusable reply it raises `StructuredOutputError` carrying the usage of this
     call alone; `complete_structured` adds it to the total.
+
+    Under a run budget, the budget is checked before every attempt, so a retry that follows a
+    long backoff cannot start once the time is gone, and the usage of the reply is recorded
+    into it before the reply is validated, so a reply that turns out to be unusable still counts.
     """
-    raw = _call_with_retries(
-        lambda: adapter.complete(
+    budget = current_budget()
+
+    def attempt() -> RawCompletion:
+        if budget is not None:
+            budget.check()
+        return adapter.complete(
             model=model,
             prompt=prompt,
             system=system,
             schema=schema,
             max_output_tokens=cfg.budgets.max_output_tokens_per_call,
             timeout_seconds=cfg.budgets.request_timeout_seconds,
-        ),
-        cfg,
-    )
+        )
+
+    raw = _call_with_retries(attempt, cfg)
     usage = _usage_from(raw, cfg.pricing.for_tier(tier))
+    if budget is not None:
+        budget.record(usage)
 
     if raw.outcome != "complete":
         raise StructuredOutputError(

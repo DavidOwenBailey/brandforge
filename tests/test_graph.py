@@ -4,10 +4,12 @@ error edges."""
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 from pydantic_settings import SettingsConfigDict
 
 from brandforge.brands import load_brand
-from brandforge.config import Settings
+from brandforge.budget import RunBudget, current_budget
+from brandforge.config import Budgets, Settings
 from brandforge.graph import (
     ASSEMBLER_NODE,
     CRITIC_NODE,
@@ -17,7 +19,8 @@ from brandforge.graph import (
     build_graph,
     run_graph,
 )
-from brandforge.llm.base import GatewayError, StructuredOutputError
+from brandforge.llm.base import BudgetExceededError, GatewayError, StructuredOutputError
+from brandforge.llm.gateway import RawCompletion, complete_structured
 from brandforge.models import (
     Brief,
     Critique,
@@ -37,9 +40,20 @@ class IsolatedSettings(Settings):
 
 
 @pytest.fixture(autouse=True)
-def isolated_router_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The router inside the graph reads the revision cap from settings; pin the defaults."""
+def isolated_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The router reads the revision cap and the guard reads the run budget from settings.
+
+    Pin the defaults for both, so a local .env cannot change what these tests see.
+    """
     monkeypatch.setattr("brandforge.router.get_settings", lambda: IsolatedSettings())
+    monkeypatch.setattr("brandforge.graph.get_settings", lambda: IsolatedSettings())
+
+
+def _use_budgets(monkeypatch: pytest.MonkeyPatch, **budgets: Any) -> None:
+    """Give the guard and the router these run budgets instead of the defaults."""
+    settings = IsolatedSettings(budgets=Budgets(**budgets))
+    monkeypatch.setattr("brandforge.router.get_settings", lambda: settings)
+    monkeypatch.setattr("brandforge.graph.get_settings", lambda: settings)
 
 
 @pytest.fixture
@@ -627,3 +641,217 @@ def test_the_guard_does_not_swallow_keyboard_interrupts(brief: Brief) -> None:
             plan=FakePlan(KeyboardInterrupt()),  # type: ignore[arg-type]
             write=FakeWrite(),
         )
+
+
+# --- run budget (BF-23) ------------------------------------------------------------
+
+VALID_VARIANT = (
+    '{"id": "v1", "channel": "search", "headline": "Ride further", '
+    '"body": "Built for the long way home.", "cta": "Shop now"}'
+)
+
+
+class RepeatingAdapter:
+    """A provider that always answers with a valid variant costing 100 tokens in, 50 out."""
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def complete(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        system: str | None,
+        schema: type[BaseModel],
+        max_output_tokens: int,
+        timeout_seconds: float,
+    ) -> RawCompletion:
+        self.call_count += 1
+        return RawCompletion(
+            text=VALID_VARIANT, input_tokens=100, output_tokens=50, outcome="complete"
+        )
+
+
+def _model_calls(adapter: RepeatingAdapter, count: int) -> Any:
+    """A node that makes `count` real gateway calls, as an agent looping over variants would."""
+
+    def node(state: RunState) -> dict[str, Any]:
+        usage = Usage()
+        for _ in range(count):
+            _, call_usage = complete_structured(
+                "p", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+            )
+            usage = usage + call_usage
+        return {"usage": usage}
+
+    return node
+
+
+class BudgetSpy(FakeWrite):
+    """A writer that notes the run budget it is running under."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.budgets: list[RunBudget | None] = []
+
+    def __call__(self, state: RunState) -> dict[str, Any]:
+        self.budgets.append(current_budget())
+        return super().__call__(state)
+
+
+def test_a_guarded_node_runs_under_a_budget_made_from_its_state(brief: Brief) -> None:
+    write = BudgetSpy()
+    initial = new_run_state(brief, load_brand("voltride"), started_at=42.0)
+
+    build_graph(FakePlan(), write, FakeCritique()).invoke(initial)
+
+    (budget,) = write.budgets
+    assert budget is not None
+    assert budget.started_at == 42.0
+    assert budget.tokens_before == 15  # the planner's 10 in and 5 out, already in state
+    assert budget.max_tokens == 60_000
+    assert budget.max_seconds == 90
+
+
+def test_the_budget_limits_come_from_settings(
+    brief: Brief, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_budgets(monkeypatch, max_tokens_per_run=5_000, max_wall_clock_seconds=30)
+    write = BudgetSpy()
+
+    run_graph(brief, load_brand("voltride"), plan=FakePlan(), write=write, critique=FakeCritique())
+
+    (budget,) = write.budgets
+    assert budget is not None
+    assert (budget.max_tokens, budget.max_seconds) == (5_000, 30)
+
+
+def test_no_budget_is_left_installed_after_a_run(brief: Brief) -> None:
+    run_graph(brief, load_brand("voltride"), plan=FakePlan(), write=FakeWrite())
+    run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(error=GatewayError("down")),
+    )
+
+    assert current_budget() is None
+
+
+def test_a_node_the_token_budget_stops_ends_the_run_partial_and_keeps_what_it_spent(
+    brief: Brief, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The planner and writer fakes have used 165 tokens by the time the critic runs. Each real
+    # call is 150: the first starts under 400 (165 -> 315), the second too (315 -> 465), and
+    # the third finds the budget gone and is never made.
+    _use_budgets(monkeypatch, max_tokens_per_run=400)
+    adapter = RepeatingAdapter()
+    revise = FakeRevise()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=_model_calls(adapter, count=5),
+        revise=revise,
+    )
+
+    assert adapter.call_count == 2
+    assert revise.calls == []
+    assert state["status"] == "partial"
+    assert [(e.node, e.fatal) for e in state["errors"]] == [("critic", True)]
+    assert "BudgetExceededError: Run stopped: token budget reached" in state["errors"][0].message
+    assert "465 of 400" in state["errors"][0].message
+    # Both calls the critic made were paid for, so they are in the run total with the others.
+    assert state["usage"].input_tokens == 10 + 100 + 200
+    assert state["usage"].output_tokens == 5 + 50 + 100
+    assert state["result"] is not None
+    assert [item.flagged for item in state["result"].variants] == [True]  # written, never scored
+
+
+def test_a_run_that_is_already_out_of_time_never_calls_the_model(brief: Brief) -> None:
+    adapter = RepeatingAdapter()
+    write = FakeWrite()
+    initial = new_run_state(brief, load_brand("voltride"), started_at=0.0)  # began in 1970
+
+    state = build_graph(_model_calls(adapter, count=1), write, FakeCritique()).invoke(initial)
+
+    assert adapter.call_count == 0
+    assert write.calls == []
+    assert state["status"] == "failed"
+    assert [(e.node, e.fatal) for e in state["errors"]] == [("planner", True)]
+    assert "wall-clock budget reached" in state["errors"][0].message
+    assert state["usage"] == Usage()
+
+
+def test_a_budget_stop_inside_a_node_keeps_the_usage_it_reports(brief: Brief) -> None:
+    spent = Usage(input_tokens=300, output_tokens=120, cost_usd=0.004)
+    stopped = BudgetExceededError("Run stopped: token budget reached", kind="tokens", usage=spent)
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=FakeCritique(error=stopped),
+    )
+
+    assert state["usage"].input_tokens == 410
+    assert state["usage"].output_tokens == 175
+    assert state["usage"].cost_usd == pytest.approx(0.007)
+
+
+def test_the_router_stops_revising_when_the_token_budget_is_used_up(brief: Brief) -> None:
+    critique = ScriptedCritique([False], usage=Usage(input_tokens=60_000))
+    revise = FakeRevise()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=critique,
+        revise=revise,
+    )
+
+    assert revise.calls == []
+    assert len(critique.calls) == 1
+    assert state["revision_count"] == 0
+    assert state["status"] == "partial"
+    assert state["errors"] == []  # giving up on revising is not an error, just flagged variants
+    assert state["result"] is not None
+    assert [item.flagged for item in state["result"].variants] == [True]
+
+
+def test_the_router_stops_revising_when_the_time_budget_is_used_up(brief: Brief) -> None:
+    critique = ScriptedCritique([False])
+    revise = FakeRevise()
+    initial = new_run_state(brief, load_brand("voltride"), started_at=0.0)  # began in 1970
+
+    state = build_graph(FakePlan(), FakeWrite(), critique, revise).invoke(initial)
+
+    assert revise.calls == []
+    assert len(critique.calls) == 1  # the fakes make no model calls, so only the router acts
+    assert state["revision_count"] == 0
+    assert state["status"] == "partial"
+    assert state["errors"] == []
+    assert state["result"] is not None
+    assert [item.flagged for item in state["result"].variants] == [True]
+
+
+def test_a_run_with_time_and_tokens_left_still_revises(brief: Brief) -> None:
+    revise = FakeRevise()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=ScriptedCritique([False, True]),
+        revise=revise,
+    )
+
+    assert len(revise.calls) == 1
+    assert state["status"] == "complete"

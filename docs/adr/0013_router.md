@@ -18,7 +18,9 @@ settings. It makes no model call and changes nothing. In order:
 
 1. Every variant has a passing critique: `assemble`.
 2. `revision_count >= budgets.max_revisions` (default 2): `stop`.
-3. `usage.total_tokens >= budgets.max_tokens_per_run` (default 60,000): `stop`.
+3. `usage.total_tokens >= budgets.max_tokens_per_run` (default 60,000): `stop`. BF-23 adds the
+   same for time: seconds since `started_at` at or over `budgets.max_wall_clock_seconds`
+   (default 90).
 4. Otherwise: `revise`.
 
 `failing_variant_ids(state)` is public. The reviser (BF-17) uses it to pick what to rewrite and
@@ -48,8 +50,9 @@ and a `partial` status.
   the cost of the next pass, so a run can finish slightly over budget. It also stops at
   "reached", not "exceeded", which gives up one revision a run that lands exactly on the
   limit could have had.
-- **Not covered here:** the wall-clock limit. State has no start time, so BF-23 adds that check
-  where the clock is available.
+- **Extended in BF-23:** the router now also stops when the wall-clock limit is reached, and
+  shares its definition of a used-up budget with the gateway (0017). State gained `started_at`
+  for it, and `route` takes an optional `now`, so it is still a pure function.
 - **Wired in BF-17:** the graph calls `route` on a conditional edge after the critic, sending
   `revise` to the reviser (ADR 0014). `assemble` and `stop` both go to the end until the
   assembler (BF-18) exists.

@@ -18,8 +18,9 @@ flagged instead of failing the run (0015).
 
 - The cap is checked by the router against `revision_count`, which the reviser increments once
   per pass (0014). It is a limit in config, not a constant in code, so eval data can tune it.
-- A second limit sits beside it: `budgets.max_tokens_per_run` (default 60,000). Whichever is
-  reached first ends the loop.
+- Two more limits sit beside it: `budgets.max_tokens_per_run` (default 60,000) and, since
+  BF-23, `budgets.max_wall_clock_seconds` (default 90). Whichever is reached first ends the
+  loop (0017).
 - Flagged variants are returned with their latest critique and the remaining fixes, and the
   run status becomes `partial`. Passing variants in the same run are not held back.
 - Only a run with no variants at all is `failed`.

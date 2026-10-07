@@ -65,6 +65,16 @@ def test_new_run_state_starts_empty_and_running(brief: Brief) -> None:
     assert state["usage"] == Usage()
 
 
+def test_new_run_state_records_when_the_run_started(
+    brief: Brief, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brand = load_brand("voltride")
+    monkeypatch.setattr("brandforge.models.time.time", lambda: 1_234.5)
+
+    assert new_run_state(brief, brand)["started_at"] == 1_234.5
+    assert new_run_state(brief, brand, started_at=99.0)["started_at"] == 99.0
+
+
 def test_new_run_state_ids_are_unique_unless_given(brief: Brief) -> None:
     brand = load_brand("voltride")
 

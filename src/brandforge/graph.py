@@ -12,6 +12,11 @@ raises after the gateway's retries, the guard records a fatal `RunError` (and th
 failed calls) instead of letting the exception out, and the edge after that node sends the run to
 the assembler with whatever state exists. The assembler then ends it `partial` or `failed`, so a
 run always returns a result. The assembler is not guarded: it is plain code over state.
+
+Run budget (BF-23): the same guard installs the run's token and wall-clock budget around each
+node (`brandforge.budget`), which is what the gateway checks before every model call. A node
+the budget stops raises `BudgetExceededError`, which takes the error edge like any other
+failure. The router checks the same limits before starting another revision.
 """
 
 import logging
@@ -26,7 +31,9 @@ from brandforge.agents.critic import critique_variants
 from brandforge.agents.planner import plan_brief
 from brandforge.agents.reviser import revise_variants
 from brandforge.agents.writer import write_variants
-from brandforge.llm.base import StructuredOutputError
+from brandforge.budget import RunBudget, active_budget
+from brandforge.config import get_settings
+from brandforge.llm.base import BudgetExceededError, StructuredOutputError
 from brandforge.models import BrandProfile, Brief, RunError, RunState, new_run_state
 from brandforge.router import RouteAction, route
 
@@ -52,19 +59,25 @@ def _guarded(name: str, node: Node) -> Node:
     """Wrap a node so that an exception becomes a fatal `RunError` in state, never a crash.
 
     The failed node returns no other keys, so state is exactly what it was before the node ran.
-    Calls that were made before the failure still cost money, so a `StructuredOutputError`'s usage
-    is kept. Only `Exception` is caught: `KeyboardInterrupt` and `SystemExit` still stop the run.
+    Calls that were made before the failure still cost money, so the usage of a
+    `StructuredOutputError` or a `BudgetExceededError` is kept. Only `Exception` is caught:
+    `KeyboardInterrupt` and `SystemExit` still stop the run.
+
+    The node runs under a `RunBudget` made from the state it was given, so the gateway can stop
+    it from spending past the run's token or wall-clock limit (BF-23).
     """
 
     def run(state: RunState) -> dict[str, Any]:
         try:
-            return node(state)
+            budget = RunBudget.for_state(state, get_settings().budgets)
+            with active_budget(budget):
+                return node(state)
         except Exception as exc:
             logger.warning("Node %r failed; sending the run to the assembler: %s", name, exc)
             update: dict[str, Any] = {
                 "errors": [RunError(node=name, message=_describe(exc), fatal=True)]
             }
-            if isinstance(exc, StructuredOutputError):
+            if isinstance(exc, StructuredOutputError | BudgetExceededError):
                 update["usage"] = exc.usage
             return update
 

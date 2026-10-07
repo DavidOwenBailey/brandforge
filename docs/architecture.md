@@ -106,6 +106,7 @@ class RunState(TypedDict):
     errors: list[RunError]
     usage: Usage  # tokens + cost, accumulated per node
     status: Literal["running", "complete", "partial", "failed"]
+    started_at: float  # epoch seconds; the wall-clock budget runs from it
 ``` 
 
 Critique.scores is shown as dict[str, int] because that is the in-memory shape. Strict structured-output modes cannot express free-form dict keys, so the critic does not ask the model for it. The model returns a CriticReply (a list of {criterion, score} items), and build_critique converts it into a Critique in code, checking that every rubric criterion is present exactly once and computing overall and passed. 
@@ -132,7 +133,7 @@ The graph is planner → retriever → writer → critic → router, where the r
 | Node fails after retries | Graph error edge | Record in errors, route to assembler with what exists | partial or failed |
 | Variant still below threshold after 2 revisions | Router | Stop revising; mark variant flagged | partial |
 | Retriever returns nothing | Retriever | Proceed with zero examples; log a warning | Continues |
-| Run exceeds token budget | Gateway budget check | Stop further revisions; assemble current best | partial |
+| Run exceeds its token or wall-clock budget (`max_tokens_per_run`, `max_wall_clock_seconds`) | Router before a revision; gateway before every model call | Router: no further revisions, variants flagged. Gateway: `BudgetExceededError` fails the node and the run assembles what exists | partial, or failed if nothing was written |
 
 **Design principles**
 

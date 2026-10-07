@@ -44,7 +44,8 @@ that must behave identically for every provider:
   or a bad request would fail the same way again, and a reply that does not validate
   is re-asked with its errors (above) rather than repeated. Each repair call gets the
   same transient-failure retries;
-- will own budgets and tracing (BF-23, BF-25), written once.
+- checks the run's token and wall-clock budget before every attempt (BF-23, 0017), and will
+  own tracing (BF-25), written once.
 
 **Provider adapters (one per provider).** An adapter implements `ProviderAdapter`:
 it builds that provider's request, including its structured-output setting, calls
