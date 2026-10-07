@@ -28,14 +28,22 @@ that must behave identically for every provider:
 - resolves the tier to `provider:model` from config and picks the adapter;
 - computes cost from per-tier prices in config;
 - validates the reply with Pydantic and raises a typed `StructuredOutputError`
-  carrying the raw text, usage and validation error, which the schema-repair retry
-  (BF-21) needs;
+  carrying the raw text, usage and validation error;
+- repairs a reply that came back whole but does not validate (BF-21): it repeats the
+  call once with a prompt (`prompts/repair_<version>.md`) holding the original request,
+  the invalid reply and one line per validation problem (field and message, no
+  values). `budgets.max_schema_repairs` sets how many repairs are allowed, default 1;
+  0 turns it off. A refused or truncated reply is never repaired: re-asking cannot
+  raise the output limit. If the repair also fails, the error is raised with the last
+  reply's text and validation error;
 - refuses response schemas that are not portable across providers (free-form
   `dict` fields);
 - retries transient provider failures (timeouts, dropped connections, rate limits and
   5xx) with exponential backoff and jitter, using tenacity (BF-20). `budgets.max_llm_retries`
-  is the total number of attempts, default 3. Nothing else is retried: a refusal, a
-  reply that does not validate or a bad request would fail the same way again;
+  is the total number of attempts, default 3. Nothing else is retried as-is: a refusal
+  or a bad request would fail the same way again, and a reply that does not validate
+  is re-asked with its errors (above) rather than repeated. Each repair call gets the
+  same transient-failure retries;
 - will own budgets and tracing (BF-23, BF-25), written once.
 
 **Provider adapters (one per provider).** An adapter implements `ProviderAdapter`:
@@ -100,5 +108,11 @@ if time allows. Adding a provider means an adapter module, a branch in
   through unchanged and are not retried; the graph's error edge (BF-22) decides how a
   node failure is recorded. The wait before a retry is computed by the core and does
   not yet honour a provider's `Retry-After` header.
-- **Known limitation:** a failed attempt returns no response, so it records no usage.
-  Only the call that returns is counted in `Usage`.
+- **Known limitation:** a transient failure returns no response, so it records no
+  usage. Every call that does return is counted: a repaired reply is reported at the
+  cost of the invalid reply plus the repair, and a `StructuredOutputError` carries the
+  usage of all calls made.
+- **Trade-off accepted:** a repair costs a second call with a longer prompt (the
+  original request plus the invalid reply), so a model that often fails validation
+  roughly doubles its cost per call. The repair rate is worth watching in the eval
+  results.

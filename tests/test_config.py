@@ -13,6 +13,7 @@ class IsolatedSettings(Settings):
 def test_defaults_match_architecture() -> None:
     s = IsolatedSettings()
     assert s.budgets.max_revisions == 2
+    assert s.budgets.max_schema_repairs == 1
     assert s.thresholds.min_overall == 4.0
     assert s.thresholds.min_per_criterion == 3
     assert s.models.fast == "anthropic:claude-haiku-4-5-20251001"

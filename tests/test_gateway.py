@@ -79,6 +79,7 @@ class ScriptedAdapter:
     def __init__(self, *steps: RawCompletion | Exception) -> None:
         self._steps = list(steps)
         self.call_count = 0
+        self.prompts: list[str] = []
 
     def complete(
         self,
@@ -92,6 +93,7 @@ class ScriptedAdapter:
     ) -> RawCompletion:
         step = self._steps[self.call_count]
         self.call_count += 1
+        self.prompts.append(prompt)
         if isinstance(step, Exception):
             raise step
         return step
@@ -189,7 +191,8 @@ def test_invalid_json_raises_with_raw_text_and_usage() -> None:
     assert err.raw_text == "Sure! Here is your ad copy:"
     assert err.validation_error is not None
     assert err.outcome == "complete"
-    assert err.usage.input_tokens == 100  # the failed call is still accounted for
+    assert len(adapter.calls) == 2  # the first reply and its one repair attempt
+    assert err.usage.input_tokens == 200  # failed calls are still accounted for
     assert err.usage.cost_usd > 0
 
 
@@ -386,14 +389,12 @@ def test_unusable_replies_are_not_retried(outcome: Outcome, sleeps: list[float])
     assert sleeps == []
 
 
-def test_invalid_replies_are_not_retried(sleeps: list[float]) -> None:
-    # Re-asking after a validation failure is BF-21, not this retry policy.
+def test_invalid_replies_are_not_backed_off(sleeps: list[float]) -> None:
+    # A reply that does not validate is re-asked at once (BF-21), not waited on like a 429.
     adapter = ScriptedAdapter(completion("not json"), completion())
 
-    with pytest.raises(StructuredOutputError):
-        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+    complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
 
-    assert adapter.call_count == 1
     assert sleeps == []
 
 
@@ -414,3 +415,143 @@ def test_each_retry_is_logged(caplog: pytest.LogCaptureFixture) -> None:
 def test_transient_error_is_a_gateway_error() -> None:
     assert issubclass(TransientProviderError, GatewayError)
     assert TransientProviderError("x", kind="timeout").kind == "timeout"
+
+
+# --- schema repair (BF-21) ---------------------------------------------------------
+
+BAD_CHANNEL = '{"id": "v1", "channel": "billboard", "headline": "x", "body": "b", "cta": "y"}'
+FAST_CALL_COST = (100 * 1 + 50 * 5) / 1e6  # fast tier: $1 in / $5 out per million tokens
+
+
+def test_invalid_reply_is_repaired_with_a_second_call() -> None:
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    variant, _ = complete_structured(
+        "write the ad", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    assert variant.channel == "search"
+    assert adapter.call_count == 2
+
+
+def test_repair_prompt_carries_the_request_the_bad_reply_and_the_problem() -> None:
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    complete_structured(
+        "write the ad", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    first, second = adapter.prompts
+    assert first == "write the ad"  # the first call is untouched by the repair feature
+    assert "write the ad" in second
+    assert BAD_CHANNEL in second
+    assert "- channel:" in second  # which field failed, as "<field>: <message>"
+
+
+def test_repair_prompt_describes_an_unparseable_reply_as_a_whole() -> None:
+    adapter = ScriptedAdapter(completion("Sure! Here is your ad copy:"), completion())
+
+    complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    assert "Sure! Here is your ad copy:" in adapter.prompts[1]
+    assert "- (whole reply):" in adapter.prompts[1]
+
+
+def test_usage_covers_the_failed_call_and_the_repair() -> None:
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    _, usage = complete_structured(
+        "p", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    assert usage.input_tokens == 200
+    assert usage.output_tokens == 100
+    assert usage.cost_usd == pytest.approx(2 * FAST_CALL_COST)
+
+
+def test_gives_up_when_the_repair_is_also_invalid() -> None:
+    adapter = ScriptedAdapter(
+        completion("not json"),
+        completion(BAD_CHANNEL),
+        completion(),  # last is never reached
+    )
+
+    with pytest.raises(StructuredOutputError) as info:
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    err = info.value
+    assert adapter.call_count == 2  # one repair, not a loop
+    assert err.raw_text == BAD_CHANNEL  # the last reply, not the first
+    assert err.validation_error is not None
+    assert err.outcome == "complete"
+    assert err.usage.input_tokens == 200
+    assert err.usage.cost_usd == pytest.approx(2 * FAST_CALL_COST)
+
+
+def test_the_number_of_repairs_is_configurable() -> None:
+    adapter = ScriptedAdapter(
+        completion("one"),
+        completion("two"),
+        completion(),
+        completion(),  # last never reached
+    )
+
+    _, usage = complete_structured(
+        "p", Variant, "fast", adapter=adapter, settings=retry_settings(max_schema_repairs=2)
+    )
+
+    assert adapter.call_count == 3
+    assert usage.input_tokens == 300
+
+
+def test_the_repair_retry_can_be_turned_off() -> None:
+    adapter = ScriptedAdapter(completion("not json"), completion())
+
+    with pytest.raises(StructuredOutputError) as info:
+        complete_structured(
+            "p", Variant, "fast", adapter=adapter, settings=retry_settings(max_schema_repairs=0)
+        )
+
+    assert adapter.call_count == 1
+    assert info.value.usage.input_tokens == 100
+
+
+def test_a_valid_first_reply_makes_exactly_one_call() -> None:
+    adapter = ScriptedAdapter(completion(), completion())
+
+    _, usage = complete_structured(
+        "p", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    assert adapter.call_count == 1
+    assert usage.input_tokens == 100
+
+
+def test_transient_failure_during_the_repair_is_retried(sleeps: list[float]) -> None:
+    adapter = ScriptedAdapter(
+        completion("not json"),
+        TransientProviderError("429", kind="rate_limit"),
+        completion(),
+    )
+
+    variant, usage = complete_structured(
+        "p", Variant, "fast", adapter=adapter, settings=IsolatedSettings()
+    )
+
+    assert variant.id == "v1"
+    assert adapter.call_count == 3
+    assert len(sleeps) == 1
+    # The failed transient attempt returned nothing to count: only the two replies are.
+    assert usage.input_tokens == 200
+
+
+def test_each_repair_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    with caplog.at_level(logging.WARNING, logger="brandforge.llm.gateway"):
+        complete_structured("p", Variant, "fast", adapter=adapter, settings=IsolatedSettings())
+
+    (record,) = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "Variant" in record.getMessage()
+    assert BAD_CHANNEL not in record.getMessage()  # replies stay out of the logs
