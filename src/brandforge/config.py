@@ -120,6 +120,7 @@ class Settings(BaseSettings):
     baseline_variants_per_channel: int = Field(default=3, ge=1, le=10)
     planner_prompt_version: str = "v1"  # prompts/planner_<version>.md
     planner_max_variants_per_channel: int = Field(default=5, ge=1, le=10)
+    writer_prompt_version: str = "v1"  # prompts/writer_<version>.md
 
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
