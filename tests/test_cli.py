@@ -10,7 +10,7 @@ import pytest
 from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
-from brandforge import __version__, graph
+from brandforge import __version__, graph, tracing
 from brandforge.config import Settings
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
@@ -123,6 +123,26 @@ def test_generate_prints_variants_and_cost(fake: FakeGenerate, brief_file: Path)
     assert "CTA 2" in result.stdout
     assert "Tokens: 120 in, 80 out (200 total)" in result.stdout
     assert "Cost:   $0.0012" in result.stdout
+
+
+def test_generate_says_tracing_is_off_when_the_run_has_no_trace(
+    fake: FakeGenerate, brief_file: Path
+) -> None:
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 0
+    assert "Trace ID: (tracing is off)" in result.stdout
+
+
+def test_generate_prints_the_trace_id(
+    fake: FakeGenerate, brief_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tracing, "trace_id_for", lambda run_id, settings=None: "abc123")
+
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 0
+    assert "Trace ID: abc123" in result.stdout
 
 
 def test_generate_prints_a_summary_table_of_scores_and_flags(

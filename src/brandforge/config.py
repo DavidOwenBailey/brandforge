@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     )
 
     # Behaviour
+    # Master switch for Langfuse tracing (BF-25). Tracing also needs both Langfuse keys: with
+    # either one missing it stays off, so a fresh clone with no keys runs exactly as before.
+    tracing_enabled: bool = True
     models: ModelTiers = ModelTiers()
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()
@@ -137,6 +140,14 @@ class Settings(BaseSettings):
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
     checkpoint_db: Path = Path(".brandforge/checkpoints.sqlite")
+
+    @property
+    def langfuse_configured(self) -> bool:
+        """True when both Langfuse keys are set, which is what tracing needs besides the switch."""
+        return bool(
+            self.langfuse_public_key.get_secret_value()
+            and self.langfuse_secret_key.get_secret_value()
+        )
 
 
 @lru_cache

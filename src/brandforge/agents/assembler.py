@@ -57,5 +57,6 @@ def assemble_result(state: RunState) -> dict[str, Any]:
         revision_count=state["revision_count"],
         errors=list(state["errors"]),
         usage=state["usage"],
+        trace_id=state["trace_id"],
     )
     return {"result": result, "status": status}

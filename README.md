@@ -22,6 +22,8 @@ uv run brandforge generate --brand voltride --brief src/brandforge/briefs/voltri
 
 Each run prints a Run ID, and its state is saved after every node. `uv run brandforge inspect <run-id>` shows the state after each node, and `--step N` prints the full state at one step. Checkpoints live in `.brandforge/checkpoints.sqlite` (change it with `BRANDFORGE_CHECKPOINT_DB`).
 
+Each run also prints a Trace ID. Tracing is optional: put your Langfuse keys (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` if you are not on the cloud free tier) in `.env` and every run becomes one trace, with a span per node and a generation per model call. Without the keys, or with `BRANDFORGE_TRACING_ENABLED=false`, the run is untouched and the CLI says tracing is off.
+
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.
 
 ## Project layout

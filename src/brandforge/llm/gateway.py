@@ -18,7 +18,12 @@ every attempt, retries and repairs included, and records the usage of every repl
 budget that is used up raises `BudgetExceededError` before the call is made. With no budget
 installed nothing is checked.
 
-Later tasks extend this module, not its callers: tracing and caching (BF-25, BF-27).
+Tracing (BF-25): every model call is a Langfuse generation under the node that made it, with the
+model, the prompt, the reply, the tokens and the cost. It is opened here, in the provider-neutral
+core, so every provider is traced the same way and no adapter knows about it. A schema repair is
+a second generation. Outside a traced run (see `brandforge.tracing`) this does nothing.
+
+Later tasks extend this module, not its callers: caching (BF-27).
 """
 
 import logging
@@ -34,6 +39,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from brandforge import tracing
 from brandforge.budget import current_budget
 from brandforge.config import Settings, Tier, TierPrice, get_settings
 from brandforge.llm.base import (
@@ -182,6 +188,34 @@ def _complete_once[T: BaseModel](
     tier: Tier,
     cfg: Settings,
 ) -> tuple[T, Usage]:
+    """One model call as one traced generation: see `_call_and_validate` for what it does.
+
+    A failure (a refusal, a reply that does not validate, a transient error that outlasted its
+    retries, a used-up budget) ends the generation as an error, so a trace shows which call went
+    wrong. Retries of a transient failure happen inside one generation.
+    """
+    with tracing.generation(
+        name=schema.__name__,
+        model=model,
+        provider=cfg.models.resolve(tier).provider,
+        tier=tier,
+        prompt=prompt,
+        system=system,
+        max_output_tokens=cfg.budgets.max_output_tokens_per_call,
+    ) as generation:
+        return _call_and_validate(adapter, model, prompt, system, schema, tier, cfg, generation)
+
+
+def _call_and_validate[T: BaseModel](
+    adapter: ProviderAdapter,
+    model: str,
+    prompt: str,
+    system: str | None,
+    schema: type[T],
+    tier: Tier,
+    cfg: Settings,
+    generation: tracing.Span,
+) -> tuple[T, Usage]:
     """One model call, retried on transient failures, validated into `schema`.
 
     On any unusable reply it raises `StructuredOutputError` carrying the usage of this
@@ -190,6 +224,7 @@ def _complete_once[T: BaseModel](
     Under a run budget, the budget is checked before every attempt, so a retry that follows a
     long backoff cannot start once the time is gone, and the usage of the reply is recorded
     into it before the reply is validated, so a reply that turns out to be unusable still counts.
+    The same reply and usage go onto the trace's `generation` at that point, for the same reason.
     """
     budget = current_budget()
 
@@ -209,6 +244,16 @@ def _complete_once[T: BaseModel](
     usage = _usage_from(raw, cfg.pricing.for_tier(tier))
     if budget is not None:
         budget.record(usage)
+    generation.update(
+        output=raw.text,
+        usage_details={
+            "input": usage.input_tokens,
+            "output": usage.output_tokens,
+            "total": usage.total_tokens,
+        },
+        cost_details={"total": usage.cost_usd},
+        metadata={"outcome": raw.outcome},
+    )
 
     if raw.outcome != "complete":
         raise StructuredOutputError(

@@ -167,3 +167,12 @@ def test_the_result_survives_a_json_round_trip() -> None:
     result = _result(assemble_result(_state({"a": True, "b": None})))
 
     assert RunResult.model_validate_json(result.model_dump_json()) == result
+
+
+def test_the_result_carries_the_runs_trace_id() -> None:
+    state = _state({"a": True})
+    assert _result(assemble_result(state)).trace_id is None  # untraced run
+
+    state["trace_id"] = "4e65d3fbe8ad6535681b021b30785b12"
+
+    assert _result(assemble_result(state)).trace_id == "4e65d3fbe8ad6535681b021b30785b12"

@@ -1,8 +1,9 @@
 """Typer CLI: `brandforge generate --brand X --brief brief.yaml` and `brandforge inspect <run_id>`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
-variants, a summary table of scores and flags, the token cost and the run ID. The state is
-checkpointed after every node (BF-24), and `inspect` reads it back by run ID.
+variants, a summary table of scores and flags, the token cost, the run ID and the Langfuse trace
+ID (BF-25). The state is checkpointed after every node (BF-24), and `inspect` reads it back by
+run ID.
 """
 
 import json
@@ -239,6 +240,7 @@ def generate(
     typer.echo("")
     typer.echo(format_usage(result.usage))
     typer.echo(f"Run ID: {result.run_id}")
+    typer.echo(f"Trace ID: {result.trace_id}" if result.trace_id else "Trace ID: (tracing is off)")
     if result.status == "failed":
         raise typer.Exit(code=1)
 

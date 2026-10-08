@@ -22,6 +22,12 @@ Checkpointing (BF-24): `build_graph` and `run_graph` take an optional checkpoint
 whole state is saved after every node, keyed by `run_id`, so a run can be read back later with
 `brandforge.checkpointing`. Without one nothing is written, which is what the evals and most
 tests want.
+
+Tracing (BF-25): `run_graph` opens one Langfuse trace for the run and every node runs inside its
+own span (`_traced`), with the gateway's model calls nested under it. The trace ID is derived
+from the `run_id`, stored in state, and ends up in the `RunResult`. A node that the guard turned
+into a fatal `RunError` shows as an error span, even though no exception left it. See
+`brandforge.tracing` and ADR 0019. With tracing off none of this does anything.
 """
 
 import logging
@@ -33,15 +39,24 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from brandforge import tracing
 from brandforge.agents.assembler import assemble_result
 from brandforge.agents.critic import critique_variants
 from brandforge.agents.planner import plan_brief
 from brandforge.agents.reviser import revise_variants
 from brandforge.agents.writer import write_variants
 from brandforge.budget import RunBudget, active_budget
-from brandforge.config import get_settings
+from brandforge.config import Settings, get_settings
 from brandforge.llm.base import BudgetExceededError, StructuredOutputError
-from brandforge.models import BrandProfile, Brief, RunError, RunState, new_run_state
+from brandforge.models import (
+    BrandProfile,
+    Brief,
+    RunError,
+    RunResult,
+    RunState,
+    Usage,
+    new_run_state,
+)
 from brandforge.router import RouteAction, route
 
 logger = logging.getLogger(__name__)
@@ -91,6 +106,56 @@ def _guarded(name: str, node: Node) -> Node:
     return run
 
 
+def _prompt_version(settings: Settings, name: str) -> str | None:
+    """The prompt file a node uses, like `planner_v1`, or `None` for a node with no prompt."""
+    version: str | None = getattr(settings, f"{name}_prompt_version", None)
+    return f"{name}_{version}" if version else None
+
+
+def _summarise(update: dict[str, Any]) -> dict[str, Any]:
+    """A node's state update as a small, readable dict for its span: counts, not contents.
+
+    The contents (variants, critiques) are already in the model calls' generations and in the
+    checkpoints, so repeating them on every span would only make the trace long.
+    """
+    summary: dict[str, Any] = {}
+    for key, value in update.items():
+        if isinstance(value, Usage):
+            summary["tokens"] = value.total_tokens
+            summary["cost_usd"] = value.cost_usd
+        elif isinstance(value, RunResult):
+            summary["flagged"] = value.flagged_count
+        elif isinstance(value, list):
+            summary[key] = len(value)
+        elif isinstance(value, str | int | float | bool) or value is None:
+            summary[key] = value
+        else:
+            summary[key] = type(value).__name__
+    return summary
+
+
+def _traced(name: str, node: Node) -> Node:
+    """Wrap a node so it runs inside its own trace span, outside the guard.
+
+    The guard turns a failure into a fatal `RunError` instead of an exception, so the span would
+    never see one. The span is marked as an error from that `RunError` instead, which is what makes
+    a failed node stand out in the trace. An exception from an unguarded node (the assembler)
+    still passes through and marks the span itself.
+    """
+
+    def run(state: RunState) -> dict[str, Any]:
+        version = _prompt_version(get_settings(), name)
+        with tracing.node_span(name, state, version=version) as span:
+            update = node(state)
+            span.update(output=_summarise(update))
+            fatal = [error for error in update.get("errors", []) if error.fatal]
+            if fatal:
+                span.update(level="ERROR", status_message=fatal[0].message)
+            return update
+
+    return run
+
+
 def _halted(state: RunState) -> bool:
     return any(error.fatal for error in state["errors"])
 
@@ -116,11 +181,11 @@ def build_graph(
     """Compile the graph. `plan`, `write`, `critique`, `revise` and `assemble` default to the
     real agents, looked up at call time so tests can replace them. With a `checkpointer`, state
     is saved after every node (BF-24)."""
-    planner = _guarded(PLANNER_NODE, plan or plan_brief)
-    writer = _guarded(WRITER_NODE, write or write_variants)
-    critic = _guarded(CRITIC_NODE, critique or critique_variants)
-    reviser = _guarded(REVISER_NODE, revise or revise_variants)
-    assembler = assemble or assemble_result
+    planner = _traced(PLANNER_NODE, _guarded(PLANNER_NODE, plan or plan_brief))
+    writer = _traced(WRITER_NODE, _guarded(WRITER_NODE, write or write_variants))
+    critic = _traced(CRITIC_NODE, _guarded(CRITIC_NODE, critique or critique_variants))
+    reviser = _traced(REVISER_NODE, _guarded(REVISER_NODE, revise or revise_variants))
+    assembler = _traced(ASSEMBLER_NODE, assemble or assemble_result)
 
     def planner_node(state: RunState) -> dict[str, Any]:
         return planner(state)
@@ -186,10 +251,29 @@ def run_graph(
     so the run can be inspected afterwards, including one that ended early. A `run_id` that
     already has checkpoints is refused: a second run on the same thread would start from the
     first one's final state, and the usage and error reducers would add to its totals.
+
+    With tracing on (BF-25) the whole run is one Langfuse trace, flushed before this returns. Its
+    ID is in `state["trace_id"]` and the result's `trace_id`; both are `None` with tracing off.
     """
     graph = build_graph(plan, write, critique, revise, assemble, checkpointer=checkpointer)
+    settings = get_settings()
     state = new_run_state(brief, brand, run_id=run_id)
+    state["trace_id"] = tracing.trace_id_for(state["run_id"], settings)
     config: RunnableConfig = {"configurable": {"thread_id": state["run_id"]}}
     if checkpointer is not None and checkpointer.get_tuple(config) is not None:
         raise ValueError(f"run_id {state['run_id']!r} already has checkpoints; use a new run_id")
-    return cast(RunState, graph.invoke(state, config))
+    with tracing.run_trace(state, settings) as root:
+        final = cast(RunState, graph.invoke(state, config))
+        result = final["result"]
+        if result is not None:
+            root.update(
+                output={
+                    "status": result.status,
+                    "variants": len(result.variants),
+                    "flagged": result.flagged_count,
+                    "revisions": result.revision_count,
+                    "tokens": result.usage.total_tokens,
+                    "cost_usd": result.usage.cost_usd,
+                }
+            )
+    return final
