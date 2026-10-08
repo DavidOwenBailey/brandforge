@@ -158,7 +158,8 @@ class RunResult(_Contract):
     """What a finished run hands back, packaged by the assembler (BF-18).
 
     It carries the brand and rubric versions so any result can be tied to the exact profile
-    that produced it. The trace ID joins it when tracing lands (BF-25).
+    that produced it, and the Langfuse trace ID (BF-25) so it can be tied to how it was produced.
+    `trace_id` is `None` when the run was not traced.
     """
 
     run_id: NonEmptyStr
@@ -170,6 +171,7 @@ class RunResult(_Contract):
     revision_count: int = Field(ge=0)
     errors: list[RunError]
     usage: Usage
+    trace_id: str | None = None
 
     @property
     def flagged_count(self) -> int:
@@ -208,6 +210,7 @@ class RunState(TypedDict):
     started_at: (
         float  # seconds since the epoch when the run began; the wall-clock budget runs from it
     )
+    trace_id: str | None  # Langfuse trace of this run (BF-25); None when tracing is off
 
 
 def new_run_state(
@@ -216,6 +219,7 @@ def new_run_state(
     *,
     run_id: str | None = None,
     started_at: float | None = None,
+    trace_id: str | None = None,
 ) -> RunState:
     """The initial state for a run: inputs filled in, everything else empty.
 
@@ -236,4 +240,5 @@ def new_run_state(
         status="running",
         result=None,
         started_at=time.time() if started_at is None else started_at,
+        trace_id=trace_id,
     )

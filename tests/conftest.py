@@ -1,7 +1,10 @@
 """Shared test fixtures."""
 
+from collections.abc import Iterator
+
 import pytest
 
+from brandforge.config import get_settings
 from brandforge.llm import gateway
 
 
@@ -14,3 +17,17 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     waits: list[float] = []
     monkeypatch.setattr(gateway, "_sleep", waits.append)
     return waits
+
+
+@pytest.fixture(autouse=True)
+def tracing_off(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep every test off the network: Langfuse tracing is off unless a test turns it on.
+
+    A developer's .env may hold real Langfuse keys, and the CLI and graph tests read settings
+    from it. An environment variable beats .env, and a test that wants tracing passes
+    `tracing_enabled=True` to its own `Settings`, which beats the environment.
+    """
+    monkeypatch.setenv("BRANDFORGE_TRACING_ENABLED", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

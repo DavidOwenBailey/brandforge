@@ -75,6 +75,13 @@ def test_new_run_state_records_when_the_run_started(
     assert new_run_state(brief, brand, started_at=99.0)["started_at"] == 99.0
 
 
+def test_new_run_state_has_no_trace_id_unless_given(brief: Brief) -> None:
+    brand = load_brand("voltride")
+
+    assert new_run_state(brief, brand)["trace_id"] is None
+    assert new_run_state(brief, brand, trace_id="abc123")["trace_id"] == "abc123"
+
+
 def test_new_run_state_ids_are_unique_unless_given(brief: Brief) -> None:
     brand = load_brand("voltride")
 
