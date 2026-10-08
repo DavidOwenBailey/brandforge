@@ -1,13 +1,17 @@
 """CLI tests. The model is faked by replacing the planner, writer, critic and reviser in the
-graph module."""
+graph module. Checkpoints go to a database in the test's temp folder, never the working one."""
 
+import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
 from brandforge import __version__, graph
+from brandforge.config import Settings
 from brandforge.interfaces import cli
 from brandforge.llm.base import GatewayConfigError
 from brandforge.models import Critique, Plan, RunError, RunState, Usage, Variant
@@ -80,6 +84,20 @@ def fake_planner_critic_and_reviser(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(graph, "plan_brief", _fake_plan)
     monkeypatch.setattr(graph, "critique_variants", _fake_critique)
     monkeypatch.setattr(graph, "revise_variants", _fake_revise)
+
+
+class IsolatedSettings(Settings):
+    """Settings that ignore any local .env, so tests are hermetic."""
+
+    model_config = SettingsConfigDict(env_file=None)
+
+
+@pytest.fixture(autouse=True)
+def checkpoint_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Send the CLI's checkpoints to a temp database instead of `.brandforge/` in the cwd."""
+    path = tmp_path / "state" / "checkpoints.sqlite"
+    monkeypatch.setattr(cli, "get_settings", lambda: IsolatedSettings(checkpoint_db=path))
+    return path
 
 
 @pytest.fixture
@@ -285,3 +303,123 @@ def test_no_args_shows_help() -> None:
     result = runner.invoke(cli.app, [])
 
     assert "generate" in result.output
+    assert "inspect" in result.output
+
+
+def _generate(brief_file: Path) -> str:
+    """Run `generate` and return the run ID it printed."""
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+    match = re.search(r"^Run ID: (\S+)$", result.stdout, re.MULTILINE)
+    assert match, result.stdout
+    return match.group(1)
+
+
+def test_generate_prints_the_run_id_and_saves_checkpoints(
+    fake: FakeGenerate, brief_file: Path, checkpoint_db: Path
+) -> None:
+    run_id = _generate(brief_file)
+
+    assert run_id == fake.calls[0]["run_id"]
+    assert checkpoint_db.is_file()
+
+
+def test_inspect_shows_the_state_after_each_node(fake: FakeGenerate, brief_file: Path) -> None:
+    run_id = _generate(brief_file)
+
+    result = runner.invoke(cli.app, ["inspect", run_id])
+
+    assert result.exit_code == 0
+    assert f"Run {run_id}: 5 checkpoints" in result.stdout
+    rows = [line.split() for line in result.stdout.splitlines()]
+    header = ["Step", "After", "Variants", "Passed", "Revisions", "Errors"]
+    assert rows[2][: len(header)] == header
+    after = [row[:2] for row in rows if row and row[0].isdigit()]
+    assert after == [
+        ["0", "(input)"],
+        ["1", "planner"],
+        ["2", "writer"],
+        ["3", "critic"],
+        ["4", "assembler"],
+    ]
+    # Step 2, after the writer: two variants, none scored yet, due to be critiqued next.
+    writer_row = next(row for row in rows if row[:2] == ["2", "writer"])
+    assert writer_row[2:6] == ["2", "0/0", "0", "0"]
+    assert writer_row[-2:] == ["running", "critic"]
+    # The last step has finished: both variants passed, and nothing is due to run.
+    assert rows[-1][:2] == ["4", "assembler"]
+    assert rows[-1][-2:] == ["complete", "-"]
+    assert rows[-1][2:4] == ["2", "2/2"]
+    assert "Errors:" not in result.stdout
+
+
+def test_inspect_lists_the_errors_of_a_failed_run(
+    monkeypatch: pytest.MonkeyPatch, brief_file: Path
+) -> None:
+    monkeypatch.setattr(
+        graph, "write_variants", FakeGenerate(GatewayConfigError("ANTHROPIC_API_KEY is not set."))
+    )
+    run_id = _generate(brief_file)
+
+    result = runner.invoke(cli.app, ["inspect", run_id])
+
+    assert result.exit_code == 0
+    assert "Errors:" in result.stdout
+    assert "[writer] GatewayConfigError: ANTHROPIC_API_KEY is not set." in result.stdout
+    assert "failed" in result.stdout
+
+
+def test_inspect_step_prints_the_full_state_after_that_step_as_json(
+    fake: FakeGenerate, brief_file: Path
+) -> None:
+    run_id = _generate(brief_file)
+
+    result = runner.invoke(cli.app, ["inspect", run_id, "--step", "2"])
+
+    assert result.exit_code == 0
+    state = json.loads(result.stdout)
+    assert state["run_id"] == run_id
+    assert [v["id"] for v in state["variants"]] == ["search-1", "social-2"]
+    assert state["plan"]["angle"] == "save time"
+    assert state["brand"]["id"] == "voltride"
+    assert state["status"] == "running"
+
+
+def test_inspect_step_that_does_not_exist_lists_the_steps_there_are(
+    fake: FakeGenerate, brief_file: Path
+) -> None:
+    run_id = _generate(brief_file)
+
+    result = runner.invoke(cli.app, ["inspect", run_id, "--step", "9"])
+
+    assert result.exit_code == 1
+    assert "has no step 9 (steps: 0, 1, 2, 3, 4)" in result.output
+
+
+def test_inspect_an_unknown_run_fails_cleanly(fake: FakeGenerate, brief_file: Path) -> None:
+    _generate(brief_file)
+
+    result = runner.invoke(cli.app, ["inspect", "no-such-run"])
+
+    assert result.exit_code == 1
+    assert "no checkpoints for run 'no-such-run'" in result.output
+
+
+def test_inspect_without_a_database_says_so_and_creates_none(checkpoint_db: Path) -> None:
+    result = runner.invoke(cli.app, ["inspect", "anything"])
+
+    assert result.exit_code == 1
+    assert "no checkpoint database" in result.output
+    assert "brandforge generate" in result.output
+    assert not checkpoint_db.parent.exists()
+
+
+def test_generate_fails_cleanly_when_the_checkpoint_path_is_not_usable(
+    fake: FakeGenerate, brief_file: Path, checkpoint_db: Path
+) -> None:
+    checkpoint_db.parent.write_text("a file where the folder should be", encoding="utf-8")
+
+    result = runner.invoke(cli.app, ["generate", "--brand", "voltride", "--brief", str(brief_file)])
+
+    assert result.exit_code == 1
+    assert "generation failed" in result.output
+    assert fake.calls == []
