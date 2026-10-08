@@ -20,6 +20,8 @@ cp .env.example .env   # then add your ANTHROPIC_API_KEY
 uv run brandforge generate --brand voltride --brief src/brandforge/briefs/voltride_01_commuter_ebike.yaml
 ```
 
+Each run prints a Run ID, and its state is saved after every node. `uv run brandforge inspect <run-id>` shows the state after each node, and `--step N` prints the full state at one step. Checkpoints live in `.brandforge/checkpoints.sqlite` (change it with `BRANDFORGE_CHECKPOINT_DB`).
+
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.
 
 ## Project layout

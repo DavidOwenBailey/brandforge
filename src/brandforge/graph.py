@@ -17,12 +17,19 @@ Run budget (BF-23): the same guard installs the run's token and wall-clock budge
 node (`brandforge.budget`), which is what the gateway checks before every model call. A node
 the budget stops raises `BudgetExceededError`, which takes the error edge like any other
 failure. The router checks the same limits before starting another revision.
+
+Checkpointing (BF-24): `build_graph` and `run_graph` take an optional checkpointer. With one, the
+whole state is saved after every node, keyed by `run_id`, so a run can be read back later with
+`brandforge.checkpointing`. Without one nothing is written, which is what the evals and most
+tests want.
 """
 
 import logging
 from collections.abc import Callable
 from typing import Any, Literal, cast
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -104,9 +111,11 @@ def build_graph(
     critique: Node | None = None,
     revise: Node | None = None,
     assemble: Node | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
 ) -> CompiledStateGraph[RunState, None, RunState, RunState]:
     """Compile the graph. `plan`, `write`, `critique`, `revise` and `assemble` default to the
-    real agents, looked up at call time so tests can replace them."""
+    real agents, looked up at call time so tests can replace them. With a `checkpointer`, state
+    is saved after every node (BF-24)."""
     planner = _guarded(PLANNER_NODE, plan or plan_brief)
     writer = _guarded(WRITER_NODE, write or write_variants)
     critic = _guarded(CRITIC_NODE, critique or critique_variants)
@@ -156,7 +165,7 @@ def build_graph(
         {"continue": CRITIC_NODE, "assemble": ASSEMBLER_NODE},
     )
     builder.add_edge(ASSEMBLER_NODE, END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
 def run_graph(
@@ -169,7 +178,18 @@ def run_graph(
     revise: Node | None = None,
     assemble: Node | None = None,
     run_id: str | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
 ) -> RunState:
-    """Run one brief through the graph and return the final state."""
-    graph = build_graph(plan, write, critique, revise, assemble)
-    return cast(RunState, graph.invoke(new_run_state(brief, brand, run_id=run_id)))
+    """Run one brief through the graph and return the final state.
+
+    With a `checkpointer`, the state is saved after every node under the run's `run_id` (BF-24),
+    so the run can be inspected afterwards, including one that ended early. A `run_id` that
+    already has checkpoints is refused: a second run on the same thread would start from the
+    first one's final state, and the usage and error reducers would add to its totals.
+    """
+    graph = build_graph(plan, write, critique, revise, assemble, checkpointer=checkpointer)
+    state = new_run_state(brief, brand, run_id=run_id)
+    config: RunnableConfig = {"configurable": {"thread_id": state["run_id"]}}
+    if checkpointer is not None and checkpointer.get_tuple(config) is not None:
+        raise ValueError(f"run_id {state['run_id']!r} already has checkpoints; use a new run_id")
+    return cast(RunState, graph.invoke(state, config))

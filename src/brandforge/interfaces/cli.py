@@ -1,18 +1,24 @@
-"""Typer CLI: `brandforge generate --brand X --brief brief.yaml`.
+"""Typer CLI: `brandforge generate --brand X --brief brief.yaml` and `brandforge inspect <run_id>`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
-variants, a summary table of scores and flags, and the token cost.
+variants, a summary table of scores and flags, the token cost and the run ID. The state is
+checkpointed after every node (BF-24), and `inspect` reads it back by run ID.
 """
 
+import json
+import sqlite3
 from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
 import yaml
 from pydantic import ValidationError
+from pydantic_core import to_jsonable_python
 
 from brandforge import __version__
 from brandforge.brands import BrandLoadError, load_brand
+from brandforge.checkpointing import RunStep, load_run_steps, open_checkpointer
+from brandforge.config import get_settings
 from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
 from brandforge.models import Brief, RunResult, Usage, Variant
@@ -136,6 +142,57 @@ def format_usage(usage: Usage) -> str:
     )
 
 
+def format_run_steps(run_id: str, steps: list[RunStep]) -> str:
+    """One row per checkpoint: the state of the run after each node, oldest first.
+
+    `After` is the node that just ran ("(input)" for the starting state) and `Next` is what was
+    due to run, so a run that was cut short ends on a row that still has a `Next`. Counts and
+    totals are cumulative, as they are in state. Errors recorded by the end of the run are
+    listed under the table.
+    """
+    rows: list[list[str]] = []
+    for step in steps:
+        state = step.state
+        critiques = state["critiques"]
+        usage = state["usage"]
+        rows.append(
+            [
+                str(step.step),
+                step.node or "(input)",
+                str(len(state["variants"])),
+                f"{sum(1 for c in critiques if c.passed)}/{len(critiques)}",
+                str(state["revision_count"]),
+                str(len(state["errors"])),
+                str(usage.total_tokens),
+                f"${usage.cost_usd:.4f}",
+                state["status"],
+                ", ".join(step.next_nodes) or "-",
+            ]
+        )
+    header = [
+        "Step",
+        "After",
+        "Variants",
+        "Passed",
+        "Revisions",
+        "Errors",
+        "Tokens",
+        "Cost",
+        "Status",
+        "Next",
+    ]
+    lines = [f"Run {run_id}: {len(steps)} checkpoints", "", _table(header, rows)]
+    if steps[-1].state["errors"]:
+        lines += ["", "Errors:"]
+        lines += [f"  [{error.node}] {error.message}" for error in steps[-1].state["errors"]]
+    return "\n".join(lines)
+
+
+def format_step_state(step: RunStep) -> str:
+    """The whole state after one step as indented JSON."""
+    return json.dumps(to_jsonable_python(step.state), indent=2)
+
+
 def _fail(message: str) -> NoReturn:
     typer.secho(f"Error: {message}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code=1)
@@ -167,8 +224,9 @@ def generate(
         _fail(str(exc))
 
     try:
-        state = run_graph(brief_model, brand_profile)
-    except (GatewayError, FileNotFoundError) as exc:
+        with open_checkpointer(get_settings().checkpoint_db) as checkpointer:
+            state = run_graph(brief_model, brand_profile, checkpointer=checkpointer)
+    except (GatewayError, OSError, sqlite3.Error) as exc:
         _fail(f"generation failed: {exc}")
 
     result = state["result"]
@@ -180,5 +238,37 @@ def generate(
     typer.echo(format_summary(result))
     typer.echo("")
     typer.echo(format_usage(result.usage))
+    typer.echo(f"Run ID: {result.run_id}")
     if result.status == "failed":
         raise typer.Exit(code=1)
+
+
+@app.command("inspect")
+def inspect_run(
+    run_id: Annotated[str, typer.Argument(help="The run ID that `generate` printed.")],
+    step: Annotated[
+        int | None,
+        typer.Option("--step", help="Print the full state after this step, as JSON."),
+    ] = None,
+) -> None:
+    """Show the state of a run after each node, from its checkpoints."""
+    path = get_settings().checkpoint_db
+    try:
+        with open_checkpointer(path, create=False) as checkpointer:
+            steps = load_run_steps(checkpointer, run_id)
+    except FileNotFoundError as exc:
+        _fail(f"{exc}; run `brandforge generate` first")
+    except (OSError, sqlite3.Error) as exc:
+        _fail(f"cannot read {path}: {exc}")
+
+    if not steps:
+        _fail(f"no checkpoints for run {run_id!r} in {path}")
+
+    if step is None:
+        typer.echo(format_run_steps(run_id, steps))
+        return
+    match = next((item for item in steps if item.step == step), None)
+    if match is None:
+        available = ", ".join(str(item.step) for item in steps)
+        _fail(f"run {run_id!r} has no step {step} (steps: {available})")
+    typer.echo(format_step_state(match))
