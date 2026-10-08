@@ -206,9 +206,17 @@ class GeminiAdapter:
         output_tokens = (
             (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0) if usage else 0
         )
+        # prompt_token_count includes cached tokens. Gemini implicit caching has no write
+        # counter: a miss is ordinary input, and a hit is this cached count, billed at the
+        # cached-input rate by the gateway. The static prefix is the system instruction, which
+        # is what makes the prefix stable enough for a hit (ADR 0021).
+        prompt_tokens = (usage.prompt_token_count or 0) if usage else 0
+        cached_tokens = (usage.cached_content_token_count or 0) if usage else 0
+        cached_tokens = min(cached_tokens, prompt_tokens)
         return RawCompletion(
             text=_text_from(response),
-            input_tokens=(usage.prompt_token_count or 0) if usage else 0,
+            input_tokens=prompt_tokens - cached_tokens,
             output_tokens=output_tokens,
+            cache_read_tokens=cached_tokens,
             outcome=_outcome_from(response),
         )

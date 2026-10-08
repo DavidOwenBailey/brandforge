@@ -24,7 +24,7 @@ from brandforge.models import (
     Usage,
     Variant,
 )
-from brandforge.prompts.loader import load_prompt, render_prompt
+from brandforge.prompts.loader import PromptParts, load_prompt, render_prompt_parts
 
 WRITER_TIER: Tier = "fast"  # the writer runs most often; the baseline uses the same tier
 
@@ -57,6 +57,7 @@ class StructuredCompleter(Protocol):
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[WriterReply, Usage]: ...
 
@@ -85,7 +86,7 @@ def _examples_section(examples: list[Example], channel: Channel) -> str:
     )
 
 
-def build_writer_prompt(
+def writer_prompt(
     brief: Brief,
     brand: BrandProfile,
     plan: Plan,
@@ -93,8 +94,9 @@ def build_writer_prompt(
     examples: list[Example],
     *,
     version: str,
-) -> str:
-    return render_prompt(
+) -> PromptParts:
+    """The writer prompt. Brand and rubric are cached; examples and the brief are not (BF-27)."""
+    return render_prompt_parts(
         load_prompt("writer", version),
         brand_id=brand.id,
         voice=", ".join(brand.voice),
@@ -111,6 +113,18 @@ def build_writer_prompt(
         objective=brief.objective,
         constraints=_bullets(brief.constraints),
     )
+
+
+def build_writer_prompt(
+    brief: Brief,
+    brand: BrandProfile,
+    plan: Plan,
+    channel: Channel,
+    examples: list[Example],
+    *,
+    version: str,
+) -> str:
+    return writer_prompt(brief, brand, plan, channel, examples, version=version).text
 
 
 def write_variants(
@@ -134,7 +148,7 @@ def write_variants(
     errors: list[RunError] = []
     usage = Usage()
     for channel in plan.channels:
-        prompt = build_writer_prompt(
+        prompt = writer_prompt(
             state["brief"],
             state["brand"],
             plan,
@@ -142,7 +156,9 @@ def write_variants(
             state["examples"],
             version=cfg.writer_prompt_version,
         )
-        reply, call_usage = complete(prompt, WriterReply, WRITER_TIER, settings=cfg)
+        reply, call_usage = complete(
+            prompt.user, WriterReply, WRITER_TIER, system=prompt.system, settings=cfg
+        )
         usage = usage + call_usage
 
         drafts = reply.variants[: plan.variants_per_channel]

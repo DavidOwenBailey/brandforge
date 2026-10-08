@@ -17,6 +17,12 @@ def test_defaults_match_architecture() -> None:
     assert s.thresholds.min_overall == 4.0
     assert s.thresholds.min_per_criterion == 3
     assert s.models.fast == "anthropic:claude-haiku-4-5-20251001"
+    assert s.planner_prompt_version == "v2"
+    assert s.pricing.anthropic_cache.write_multiplier == 1.25
+    assert s.pricing.anthropic_cache.read_multiplier == 0.1
+    assert s.pricing.gemini_cache.read_multiplier == 0.1
+    assert s.pricing.strong.cache_read_multiplier == 0.05
+    assert s.pricing.fast.cache_read_multiplier is None
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

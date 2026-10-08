@@ -132,8 +132,34 @@ class TestUsage:
             Usage(input_tokens=-1)
 
     def test_addition_accumulates(self) -> None:
-        total = Usage(input_tokens=10, output_tokens=5, cost_usd=0.01) + Usage(
-            input_tokens=1, output_tokens=2, cost_usd=0.02
-        )
+        total = Usage(
+            input_tokens=10,
+            output_tokens=5,
+            cache_write_tokens=3,
+            cache_read_tokens=4,
+            cost_usd=0.01,
+        ) + Usage(input_tokens=1, output_tokens=2, cache_read_tokens=6, cost_usd=0.02)
         assert (total.input_tokens, total.output_tokens) == (11, 7)
+        assert (total.cache_write_tokens, total.cache_read_tokens) == (3, 10)
+        assert total.total_tokens == 11 + 7 + 3 + 10
         assert total.cost_usd == pytest.approx(0.03)
+
+    def test_a_node_that_runs_twice_is_summed_into_one_row(self) -> None:
+        first = Usage(input_tokens=10, output_tokens=1, cost_usd=0.1).attributed_to("critic")
+        writer = Usage(
+            input_tokens=3, output_tokens=1, cache_read_tokens=8, cost_usd=0.05
+        ).attributed_to("writer")
+        second = Usage(input_tokens=4, output_tokens=2, cost_usd=0.2).attributed_to("critic")
+
+        total = first + writer + second
+
+        assert [item.node for item in total.nodes] == ["critic", "writer"]
+        assert total.nodes[0].input_tokens == 14
+        assert total.nodes[0].cost_usd == pytest.approx(0.3)
+        assert total.nodes[1].cache_read_tokens == 8
+        assert total.nodes[1].total_tokens == 3 + 1 + 8
+
+    def test_attributing_nothing_or_twice_adds_no_row(self) -> None:
+        assert Usage().attributed_to("planner").nodes == []
+        once = Usage(input_tokens=1, cost_usd=0.01).attributed_to("planner")
+        assert [item.node for item in once.attributed_to("planner").nodes] == ["planner"]

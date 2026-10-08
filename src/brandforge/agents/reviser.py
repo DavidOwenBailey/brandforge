@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from brandforge.config import Settings, Tier, get_settings
 from brandforge.llm.gateway import complete_structured
 from brandforge.models import BrandProfile, Brief, Critique, NonEmptyStr, RunState, Usage, Variant
-from brandforge.prompts.loader import load_prompt, render_prompt
+from brandforge.prompts.loader import PromptParts, load_prompt, render_prompt_parts
 from brandforge.router import failing_variant_ids
 
 REVISER_TIER: Tier = "fast"  # the reviser runs as often as the writer, so it uses the same tier
@@ -40,6 +40,7 @@ class StructuredCompleter(Protocol):
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[ReviserReply, Usage]: ...
 
@@ -71,15 +72,16 @@ def _critique_text(critique: Critique | None) -> str:
     return f"Scores (1 to 5):\n{scores}\nFixes:\n{fixes}"
 
 
-def build_reviser_prompt(
+def reviser_prompt(
     brief: Brief,
     brand: BrandProfile,
     variant: Variant,
     critique: Critique | None,
     *,
     version: str,
-) -> str:
-    return render_prompt(
+) -> PromptParts:
+    """The reviser prompt. Brand and rubric are cached; the variant and its notes are not."""
+    return render_prompt_parts(
         load_prompt("reviser", version),
         brand_id=brand.id,
         voice=", ".join(brand.voice),
@@ -96,6 +98,17 @@ def build_reviser_prompt(
         objective=brief.objective,
         constraints=_bullets(brief.constraints),
     )
+
+
+def build_reviser_prompt(
+    brief: Brief,
+    brand: BrandProfile,
+    variant: Variant,
+    critique: Critique | None,
+    *,
+    version: str,
+) -> str:
+    return reviser_prompt(brief, brand, variant, critique, version=version).text
 
 
 def revise_variants(
@@ -126,10 +139,12 @@ def revise_variants(
         if variant.id not in failing:
             variants.append(variant)
             continue
-        prompt = build_reviser_prompt(
+        prompt = reviser_prompt(
             brief, brand, variant, critiques.get(variant.id), version=cfg.reviser_prompt_version
         )
-        reply, call_usage = complete(prompt, ReviserReply, REVISER_TIER, settings=cfg)
+        reply, call_usage = complete(
+            prompt.user, ReviserReply, REVISER_TIER, system=prompt.system, settings=cfg
+        )
         usage = usage + call_usage
         variants.append(
             Variant(

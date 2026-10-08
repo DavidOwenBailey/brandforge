@@ -34,6 +34,10 @@ invocation, and logs `run_started` / `run_finished`. Every other log emitted dur
 the guard, the router, the gateway — picks up the same `run_id`. See `brandforge.logging` and
 ADR 0020. The lines are JSON on stderr once the CLI has configured logging; they are not part of
 the printed result.
+
+Cost by node (BF-27): the usage a node returns is attributed to that node's name before it is
+reduced into the run total, including the usage a failed node still spent. A node that runs
+again (the critic, after a revision) is summed into the same row.
 """
 
 import logging
@@ -115,7 +119,7 @@ def _guarded(name: str, node: Node) -> Node:
 
 
 def _prompt_version(settings: Settings, name: str) -> str | None:
-    """The prompt file a node uses, like `planner_v1`, or `None` for a node with no prompt."""
+    """The prompt file a node uses, like `planner_v2`, or `None` for a node with no prompt."""
     version: str | None = getattr(settings, f"{name}_prompt_version", None)
     return f"{name}_{version}" if version else None
 
@@ -155,6 +159,9 @@ def _traced(name: str, node: Node) -> Node:
         version = _prompt_version(get_settings(), name)
         with tracing.node_span(name, state, version=version) as span:
             update = node(state)
+            usage = update.get("usage")
+            if isinstance(usage, Usage):
+                update["usage"] = usage.attributed_to(name)
             span.update(output=_summarise(update))
             fatal = [error for error in update.get("errors", []) if error.fatal]
             if fatal:

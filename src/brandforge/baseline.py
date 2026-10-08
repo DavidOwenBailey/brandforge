@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from brandforge.config import Settings, Tier, get_settings
 from brandforge.llm.gateway import complete_structured
 from brandforge.models import BrandProfile, Brief, Channel, NonEmptyStr, Usage, Variant
-from brandforge.prompts.loader import load_prompt, render_prompt
+from brandforge.prompts.loader import PromptParts, load_prompt, render_prompt_parts
 
 BASELINE_TIER: Tier = "fast"  # same tier as the writer, so the comparison is fair
 
@@ -45,6 +45,7 @@ class StructuredCompleter(Protocol):
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[BaselineReply, Usage]: ...
 
@@ -53,10 +54,11 @@ def _bullets(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) or "- (none)"
 
 
-def build_baseline_prompt(
+def baseline_prompt(
     brief: Brief, brand: BrandProfile, *, version: str, variants_per_channel: int
-) -> str:
-    return render_prompt(
+) -> PromptParts:
+    """The baseline prompt. The brand profile is the cached system prefix (BF-27)."""
+    return render_prompt_parts(
         load_prompt("baseline", version),
         brand_id=brand.id,
         voice=", ".join(brand.voice),
@@ -72,6 +74,14 @@ def build_baseline_prompt(
     )
 
 
+def build_baseline_prompt(
+    brief: Brief, brand: BrandProfile, *, version: str, variants_per_channel: int
+) -> str:
+    return baseline_prompt(
+        brief, brand, version=version, variants_per_channel=variants_per_channel
+    ).text
+
+
 def generate_baseline(
     brief: Brief,
     brand: BrandProfile,
@@ -85,13 +95,15 @@ def generate_baseline(
     failures is the caller's job.
     """
     cfg = settings or get_settings()
-    prompt = build_baseline_prompt(
+    prompt = baseline_prompt(
         brief,
         brand,
         version=cfg.baseline_prompt_version,
         variants_per_channel=cfg.baseline_variants_per_channel,
     )
-    reply, usage = complete(prompt, BaselineReply, BASELINE_TIER, settings=cfg)
+    reply, usage = complete(
+        prompt.user, BaselineReply, BASELINE_TIER, system=prompt.system, settings=cfg
+    )
     variants = [
         Variant(
             id=f"baseline-{n}",

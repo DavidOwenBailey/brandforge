@@ -1,9 +1,9 @@
 """Typer CLI: `brandforge generate --brand X --brief brief.yaml` and `brandforge inspect <run_id>`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
-variants, a summary table of scores and flags, the token cost, the run ID and the Langfuse trace
-ID (BF-25). The state is checkpointed after every node (BF-24), and `inspect` reads it back by
-run ID.
+variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
+run ID and the Langfuse trace ID (BF-25). The state is checkpointed after every node (BF-24),
+and `inspect` reads it back by run ID.
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -140,12 +140,45 @@ def format_summary(result: RunResult) -> str:
     return "\n".join(lines)
 
 
+def _token_counts(usage: Usage) -> str:
+    """The token counts as one phrase. Cache counts are omitted when a run did not use them."""
+    parts = [f"{usage.input_tokens} in", f"{usage.output_tokens} out"]
+    if usage.cache_write_tokens:
+        parts.append(f"{usage.cache_write_tokens} cache write")
+    if usage.cache_read_tokens:
+        parts.append(f"{usage.cache_read_tokens} cache read")
+    return ", ".join(parts)
+
+
 def format_usage(usage: Usage) -> str:
-    return (
-        f"Tokens: {usage.input_tokens} in, {usage.output_tokens} out "
-        f"({usage.total_tokens} total)\n"
-        f"Cost:   ${usage.cost_usd:.4f}"
-    )
+    """The run's tokens and cost, then one row per node that spent anything.
+
+    Nodes are in the order they first ran. A node that ran twice (the critic, after a revision)
+    is one row, the sum of both visits.
+    """
+    lines = [
+        f"Tokens: {_token_counts(usage)} ({usage.total_tokens} total)",
+        f"Cost:   ${usage.cost_usd:.4f}",
+    ]
+    if not usage.nodes:
+        return "\n".join(lines)
+    show_cache = any(item.cache_write_tokens or item.cache_read_tokens for item in usage.nodes)
+    header = ["Node", "Tokens", "Cost"]
+    rows = [[item.node, str(item.total_tokens), f"${item.cost_usd:.4f}"] for item in usage.nodes]
+    if show_cache:
+        header = ["Node", "Tokens", "Cache write", "Cache read", "Cost"]
+        rows = [
+            [
+                item.node,
+                str(item.total_tokens),
+                str(item.cache_write_tokens),
+                str(item.cache_read_tokens),
+                f"${item.cost_usd:.4f}",
+            ]
+            for item in usage.nodes
+        ]
+    lines += ["", "Cost by node:", _table(header, rows)]
+    return "\n".join(lines)
 
 
 def format_run_steps(run_id: str, steps: list[RunStep]) -> str:

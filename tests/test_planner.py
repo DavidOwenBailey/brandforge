@@ -27,6 +27,7 @@ class FakeCompleter:
         self._reply = reply
         self._usage = usage or Usage(input_tokens=10, output_tokens=5, cost_usd=0.001)
         self.calls: list[tuple[str, type[PlanReply], Tier, Settings | None]] = []
+        self.systems: list[str | None] = []
 
     def __call__(
         self,
@@ -35,9 +36,11 @@ class FakeCompleter:
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[PlanReply, Usage]:
         self.calls.append((prompt, schema, tier, settings))
+        self.systems.append(system)
         return self._reply, self._usage
 
 
@@ -175,3 +178,19 @@ def test_node_returns_only_plan_and_usage() -> None:
     assert set(update) == {"plan", "usage"}
     assert update["plan"].variants_per_channel == 2
     assert update["usage"] == usage
+
+
+def test_the_brand_profile_is_sent_as_the_cached_system_prompt() -> None:
+    fake = FakeCompleter(_reply())
+
+    create_plan(_brief(), load_brand("voltride"), settings=IsolatedSettings(), complete=fake)
+
+    system = fake.systems[0]
+    assert system is not None
+    assert "Brand: voltride" in system
+    assert "game-changer" in system
+    assert "<!-- cache -->" not in system
+    user = fake.calls[0][0]
+    assert "Commuter e-bike" in user
+    assert "Brand: voltride" not in user
+    assert "<!-- cache -->" not in user

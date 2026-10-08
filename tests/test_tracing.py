@@ -242,7 +242,7 @@ def test_a_node_span_records_the_prompt_version_and_a_summary(
     spans = _spans(exporter)
     (planner,) = spans["planner"]
     (assembler,) = spans["assembler"]
-    assert (planner.attributes or {})["langfuse.version"] == "planner_v1"
+    assert (planner.attributes or {})["langfuse.version"] == "planner_v2"
     assert '"tokens": 15' in _attr(planner, "output")
     assert "langfuse.version" not in (assembler.attributes or {})  # no prompt, so no version
 

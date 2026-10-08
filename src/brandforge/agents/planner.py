@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 from brandforge.config import Settings, Tier, get_settings
 from brandforge.llm.gateway import complete_structured
 from brandforge.models import BrandProfile, Brief, NonEmptyStr, Plan, RunState, Usage
-from brandforge.prompts.loader import load_prompt, render_prompt
+from brandforge.prompts.loader import PromptParts, load_prompt, render_prompt_parts
 
 PLANNER_TIER: Tier = "strong"  # planning needs judgement; it runs once per run
 
@@ -41,6 +41,7 @@ class StructuredCompleter(Protocol):
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[PlanReply, Usage]: ...
 
@@ -49,10 +50,11 @@ def _bullets(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) or "- (none)"
 
 
-def build_planner_prompt(
+def planner_prompt(
     brief: Brief, brand: BrandProfile, *, version: str, max_variants_per_channel: int
-) -> str:
-    return render_prompt(
+) -> PromptParts:
+    """The planner prompt. The brand profile is the cached system prefix (BF-27)."""
+    return render_prompt_parts(
         load_prompt("planner", version),
         brand_id=brand.id,
         voice=", ".join(brand.voice),
@@ -66,6 +68,14 @@ def build_planner_prompt(
         objective=brief.objective,
         constraints=_bullets(brief.constraints),
     )
+
+
+def build_planner_prompt(
+    brief: Brief, brand: BrandProfile, *, version: str, max_variants_per_channel: int
+) -> str:
+    return planner_prompt(
+        brief, brand, version=version, max_variants_per_channel=max_variants_per_channel
+    ).text
 
 
 def create_plan(
@@ -82,13 +92,15 @@ def create_plan(
     """
     cfg = settings or get_settings()
     max_variants = cfg.planner_max_variants_per_channel
-    prompt = build_planner_prompt(
+    prompt = planner_prompt(
         brief,
         brand,
         version=cfg.planner_prompt_version,
         max_variants_per_channel=max_variants,
     )
-    reply, usage = complete(prompt, PlanReply, PLANNER_TIER, settings=cfg)
+    reply, usage = complete(
+        prompt.user, PlanReply, PLANNER_TIER, system=prompt.system, settings=cfg
+    )
     plan = Plan(
         audience=reply.audience,
         angle=reply.angle,

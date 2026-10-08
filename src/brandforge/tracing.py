@@ -214,7 +214,7 @@ def _flush(client: Langfuse) -> None:
 def node_span(name: str, state: RunState, *, version: str | None = None) -> Iterator[Span]:
     """A span for one graph node, under the run's root span. A no-op outside a traced run.
 
-    `version` is the node's prompt version (for example `planner_v1`), so a trace says exactly
+    `version` is the node's prompt version (for example `planner_v2`), so a trace says exactly
     which prompt file produced it.
     """
     client = _active_client.get()
