@@ -87,6 +87,6 @@ process would otherwise exit first.
 - **Trade-off accepted:** this adds the `langfuse` package, which brings OpenTelemetry with it.
 - **Trade-off accepted:** the Langfuse SDK keeps one client per public key for the life of the
   process, so tests give each test its own key.
-- **Not covered here:** prompt caching and the per-node cost table in the CLI (BF-27), the
-  structured JSON logs that will carry the `run_id` (BF-26), and the self-hosted Langfuse setup
-  (BF-28). The trace ID will be returned by the API when it exists (BF-39).
+- **Not covered here:** prompt caching and the per-node cost table in the CLI (BF-27) and the
+  self-hosted Langfuse setup (BF-28). The structured JSON logs that carry the `run_id` are ADR
+  0020. The trace ID will be returned by the API when it exists (BF-39).

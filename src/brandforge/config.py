@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, NamedTuple
 
-from pydantic import AfterValidator, BaseModel, Field, SecretStr
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,21 @@ def _check_model_ref(value: str) -> str:
 ModelId = Annotated[str, AfterValidator(_check_model_ref)]
 
 Tier = Literal["strong", "fast", "judge"]
+
+
+def _strip_upper(value: object) -> object:
+    return value.strip().upper() if isinstance(value, str) else value
+
+
+def _strip_lower(value: object) -> object:
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+LogLevel = Annotated[
+    Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    BeforeValidator(_strip_upper),
+]
+LogFormat = Annotated[Literal["json", "console"], BeforeValidator(_strip_lower)]
 
 
 class ModelTiers(BaseModel):
@@ -123,6 +138,10 @@ class Settings(BaseSettings):
     # Master switch for Langfuse tracing (BF-25). Tracing also needs both Langfuse keys: with
     # either one missing it stays off, so a fresh clone with no keys runs exactly as before.
     tracing_enabled: bool = True
+    # Structured logs (BF-26). JSON lines on stderr; `console` is the same fields for a person.
+    # The level is read case-insensitively. See `brandforge.logging`.
+    log_level: LogLevel = "INFO"
+    log_format: LogFormat = "json"
     models: ModelTiers = ModelTiers()
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()

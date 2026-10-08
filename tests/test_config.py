@@ -49,3 +49,17 @@ def test_invalid_budget_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRANDFORGE_BUDGETS__MAX_TOKENS_PER_RUN", "0")
     with pytest.raises(ValueError):
         IsolatedSettings()
+
+
+def test_log_level_and_format_are_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_LOG_LEVEL", "debug")
+    monkeypatch.setenv("BRANDFORGE_LOG_FORMAT", "Console")
+    settings = IsolatedSettings()
+    assert settings.log_level == "DEBUG"
+    assert settings.log_format == "console"
+
+
+def test_bad_log_level_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_LOG_LEVEL", "verbose")
+    with pytest.raises(ValueError):
+        IsolatedSettings()

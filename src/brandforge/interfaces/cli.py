@@ -4,6 +4,9 @@
 variants, a summary table of scores and flags, the token cost, the run ID and the Langfuse trace
 ID (BF-25). The state is checkpointed after every node (BF-24), and `inspect` reads it back by
 run ID.
+
+Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
+a run is in progress. They are configured once, when the CLI starts.
 """
 
 import json
@@ -22,6 +25,7 @@ from brandforge.checkpointing import RunStep, load_run_steps, open_checkpointer
 from brandforge.config import get_settings
 from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
+from brandforge.logging import configure_logging
 from brandforge.models import Brief, RunResult, Usage, Variant
 
 app = typer.Typer(
@@ -45,6 +49,7 @@ def main(
     ] = False,
 ) -> None:
     """BrandForge command line."""
+    configure_logging(get_settings())
 
 
 def load_brief(path: Path) -> Brief:
