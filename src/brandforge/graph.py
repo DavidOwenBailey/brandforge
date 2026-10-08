@@ -28,6 +28,12 @@ own span (`_traced`), with the gateway's model calls nested under it. The trace 
 from the `run_id`, stored in state, and ends up in the `RunResult`. A node that the guard turned
 into a fatal `RunError` shows as an error span, even though no exception left it. See
 `brandforge.tracing` and ADR 0019. With tracing off none of this does anything.
+
+Logging (BF-26): `run_graph` binds `run_id` (and `trace_id`, when there is one) for the whole
+invocation, and logs `run_started` / `run_finished`. Every other log emitted during the run —
+the guard, the router, the gateway — picks up the same `run_id`. See `brandforge.logging` and
+ADR 0020. The lines are JSON on stderr once the CLI has configured logging; they are not part of
+the printed result.
 """
 
 import logging
@@ -48,6 +54,7 @@ from brandforge.agents.writer import write_variants
 from brandforge.budget import RunBudget, active_budget
 from brandforge.config import Settings, get_settings
 from brandforge.llm.base import BudgetExceededError, StructuredOutputError
+from brandforge.logging import bind_run, get_logger
 from brandforge.models import (
     BrandProfile,
     Brief,
@@ -60,6 +67,7 @@ from brandforge.models import (
 from brandforge.router import RouteAction, route
 
 logger = logging.getLogger(__name__)
+slog = get_logger(__name__)
 
 # Same shape as the agents: read state, return a partial state update.
 Node = Callable[[RunState], dict[str, Any]]
@@ -254,6 +262,9 @@ def run_graph(
 
     With tracing on (BF-25) the whole run is one Langfuse trace, flushed before this returns. Its
     ID is in `state["trace_id"]` and the result's `trace_id`; both are `None` with tracing off.
+
+    The run's `run_id` is bound onto the logs for the whole call (BF-26), including when the run
+    raises, and a `run_started` / `run_finished` pair is written around it.
     """
     graph = build_graph(plan, write, critique, revise, assemble, checkpointer=checkpointer)
     settings = get_settings()
@@ -262,18 +273,35 @@ def run_graph(
     config: RunnableConfig = {"configurable": {"thread_id": state["run_id"]}}
     if checkpointer is not None and checkpointer.get_tuple(config) is not None:
         raise ValueError(f"run_id {state['run_id']!r} already has checkpoints; use a new run_id")
-    with tracing.run_trace(state, settings) as root:
-        final = cast(RunState, graph.invoke(state, config))
-        result = final["result"]
-        if result is not None:
-            root.update(
-                output={
-                    "status": result.status,
-                    "variants": len(result.variants),
-                    "flagged": result.flagged_count,
-                    "revisions": result.revision_count,
-                    "tokens": result.usage.total_tokens,
-                    "cost_usd": result.usage.cost_usd,
-                }
+
+    final: RunState | None = None
+    with bind_run(state["run_id"], trace_id=state["trace_id"]):
+        slog.info("run_started", brand_id=brand.id)
+        try:
+            with tracing.run_trace(state, settings) as root:
+                final = cast(RunState, graph.invoke(state, config))
+                result = final["result"]
+                if result is not None:
+                    root.update(
+                        output={
+                            "status": result.status,
+                            "variants": len(result.variants),
+                            "flagged": result.flagged_count,
+                            "revisions": result.revision_count,
+                            "tokens": result.usage.total_tokens,
+                            "cost_usd": result.usage.cost_usd,
+                        }
+                    )
+        finally:
+            finished = None if final is None else final["result"]
+            slog.info(
+                "run_finished",
+                status=None if finished is None else finished.status,
+                tokens=None if finished is None else finished.usage.total_tokens,
+                cost_usd=None if finished is None else finished.usage.cost_usd,
             )
+    if final is None:
+        # `invoke` either returns a state or raises, and a raise leaves this function in the
+        # `finally` above. This is here so the type checker can see that we always return one.
+        raise RuntimeError("the graph returned no state")
     return final

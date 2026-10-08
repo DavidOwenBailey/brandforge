@@ -24,6 +24,8 @@ Each run prints a Run ID, and its state is saved after every node. `uv run brand
 
 Each run also prints a Trace ID. Tracing is optional: put your Langfuse keys (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` if you are not on the cloud free tier) in `.env` and every run becomes one trace, with a span per node and a generation per model call. Without the keys, or with `BRANDFORGE_TRACING_ENABLED=false`, the run is untouched and the CLI says tracing is off.
 
+The same run writes structured logs to stderr: one JSON object per line, each carrying that run's ID (and the trace ID, when there is one), so a log line can be tied to the printed Run ID and to the Langfuse trace. `BRANDFORGE_LOG_LEVEL` sets the level (default `INFO`) and `BRANDFORGE_LOG_FORMAT=console` renders the same fields for a person. The tables the CLI prints stay on stdout.
+
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.
 
 ## Project layout
