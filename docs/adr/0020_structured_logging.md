@@ -71,5 +71,5 @@ Logging lives in `brandforge/logging.py` and is switched on by the CLI at startu
 - **Trade-off accepted:** the redaction only sees top-level field names. A secret interpolated
   into the message text is not caught.
 - **Trade-off accepted:** this adds the `structlog` package.
-- **Not covered here:** shipping the logs anywhere, a per-node cost table (BF-27), and the
-  self-hosted Langfuse setup (BF-28).
+- **Not covered here:** shipping the logs anywhere. The per-node cost table is ADR 0021. The
+  self-hosted Langfuse setup is ADR 0022.

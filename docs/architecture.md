@@ -163,7 +163,7 @@ The stack favours mainstream, well-documented tools that agent roles ask for by 
 | Retrieval | Chroma (local, persistent) + provider embeddings | Zero-infrastructure vector store; enough for a few hundred examples | pgvector, Qdrant |
 | Brand store | Versioned YAML files in the repo | Reviewable in Git; no database needed for the POC | Postgres |
 | Checkpointing | LangGraph SQLite checkpointer | Inspect and resume runs locally | Postgres checkpointer (production) |
-| Tracing | Langfuse (self-hosted via Docker Compose, or free cloud tier) | Open source; native LangGraph integration; shows agent graphs, tokens, cost | LangSmith, OpenTelemetry + Jaeger |
+| Tracing | Langfuse (cloud free tier by default; optional self-hosted Docker Compose) | Open source; the same SDK against either backend; shows agent graphs, tokens, cost | LangSmith, OpenTelemetry + Jaeger |
 | Evaluation | promptfoo + LLM-as-a-judge rubric; pytest for deterministic checks | Named in target job specs; YAML test suites run in CI | DeepEval, Ragas |
 | Prompt optimisation (stretch) | DSPy | Systematic prompt tuning against the eval set | Manual iteration |
 | Interfaces | Typer CLI; FastAPI endpoint; Streamlit demo page | CLI for evals and scripting, API to show service design, Streamlit for the video | Gradio |
@@ -206,6 +206,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 **Observability**
 
 * One Langfuse trace per run, with a span per graph node; each span records model, prompt version, input, output, tokens, latency and errors.  
+* The default backend is Langfuse Cloud's free tier (`LANGFUSE_HOST=https://cloud.langfuse.com`). A self-hosted stack is optional and off unless you start it: `deploy/langfuse/docker-compose.yml` (ADR 0022). The SDK configuration is the same either way.  
 * The trace ID is returned in the result and printed by the CLI, so any output links straight to how it was produced.  
 * Structured JSON logs (structlog) carry the same run_id for correlation.  
 * Prompts are versioned files; the prompt version is a span attribute, so eval results tie to exact prompts.
@@ -232,10 +233,12 @@ The evaluation answers one question: does the full pipeline produce better on-br
 brandforge/  
 ├── README.md                 # problem, diagram, quickstart, results, limitations  
 ├── pyproject.toml            # pinned deps, ruff, mypy, pytest config  
-├── docker-compose.yml        # app + optional self-hosted Langfuse  
+├── docker-compose.yml        # API and demo page (BF-41)  
+├── deploy/langfuse/          # optional self-hosted Langfuse; cloud free tier is the default  
 ├── .env.example  
 ├── docs/  
 │   ├── architecture.md       # this document  
+│   ├── langfuse.md           # cloud free tier, and the optional local stack  
 │   └── adr/                  # 0001-langgraph.md, 0002-revision-cap.md, ...  
 ├── src/brandforge/  
 │   ├── config.py             # settings, model tiers, budgets  

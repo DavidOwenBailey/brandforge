@@ -159,6 +159,12 @@ class Thresholds(BaseModel):
     min_per_criterion: int = Field(default=3, ge=1, le=5)
 
 
+# Langfuse Cloud's free tier is the default backend (BF-28, ADR 0022). The optional
+# self-hosted stack serves LANGFUSE_LOCAL_HOST and is unused unless LANGFUSE_HOST points at it.
+LANGFUSE_CLOUD_HOST = "https://cloud.langfuse.com"
+LANGFUSE_LOCAL_HOST = "http://localhost:3000"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -180,9 +186,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: SecretStr = Field(
         default=SecretStr(""), validation_alias="LANGFUSE_SECRET_KEY"
     )
-    langfuse_host: str = Field(
-        default="https://cloud.langfuse.com", validation_alias="LANGFUSE_HOST"
-    )
+    langfuse_host: str = Field(default=LANGFUSE_CLOUD_HOST, validation_alias="LANGFUSE_HOST")
 
     # Behaviour
     # Master switch for Langfuse tracing (BF-25). Tracing also needs both Langfuse keys: with
