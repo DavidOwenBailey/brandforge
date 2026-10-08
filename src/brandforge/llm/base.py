@@ -83,12 +83,19 @@ class StructuredOutputError(GatewayError):
 
 @dataclass(frozen=True, slots=True)
 class RawCompletion:
-    """What an adapter returns: the reply text and normalised accounting, unvalidated."""
+    """What an adapter returns: the reply text and normalised accounting, unvalidated.
+
+    `input_tokens` are the uncached input tokens. Cache writes and reads are separate because
+    the two providers bill them differently and do not even report them the same way (BF-27).
+    Both are zero when the provider did not cache anything.
+    """
 
     text: str
     input_tokens: int
     output_tokens: int
     outcome: Outcome
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class ProviderAdapter(Protocol):

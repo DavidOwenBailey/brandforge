@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from brandforge.config import Settings, Tier, get_settings
 from brandforge.llm.gateway import complete_structured
 from brandforge.models import BrandProfile, Brief, Critique, RunState, Usage, Variant
-from brandforge.prompts.loader import load_prompt, render_prompt
+from brandforge.prompts.loader import PromptParts, load_prompt, render_prompt_parts
 from brandforge.scoring import CriticReply, build_critique
 
 CRITIC_TIER: Tier = "strong"  # judging copy needs judgement; the planner uses the same tier
@@ -27,6 +27,7 @@ class StructuredCompleter(Protocol):
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[CriticReply, Usage]: ...
 
@@ -44,10 +45,11 @@ def _rubric_text(brand: BrandProfile) -> str:
     return "\n".join(blocks)
 
 
-def build_critic_prompt(
+def critic_prompt(
     brief: Brief, brand: BrandProfile, variant: Variant, *, version: str
-) -> str:
-    return render_prompt(
+) -> PromptParts:
+    """The critic prompt. Brand and rubric are cached; the variant under review is not (BF-27)."""
+    return render_prompt_parts(
         load_prompt("critic", version),
         brand_id=brand.id,
         voice=", ".join(brand.voice),
@@ -64,6 +66,12 @@ def build_critic_prompt(
         objective=brief.objective,
         constraints=_bullets(brief.constraints),
     )
+
+
+def build_critic_prompt(
+    brief: Brief, brand: BrandProfile, variant: Variant, *, version: str
+) -> str:
+    return critic_prompt(brief, brand, variant, version=version).text
 
 
 def critique_variants(
@@ -84,8 +92,10 @@ def critique_variants(
     critiques: list[Critique] = []
     usage = Usage()
     for variant in state["variants"]:
-        prompt = build_critic_prompt(brief, brand, variant, version=cfg.critic_prompt_version)
-        reply, call_usage = complete(prompt, CriticReply, CRITIC_TIER, settings=cfg)
+        prompt = critic_prompt(brief, brand, variant, version=cfg.critic_prompt_version)
+        reply, call_usage = complete(
+            prompt.user, CriticReply, CRITIC_TIER, system=prompt.system, settings=cfg
+        )
         usage = usage + call_usage
         critiques.append(build_critique(variant.id, reply, brand.rubric, cfg.thresholds))
 

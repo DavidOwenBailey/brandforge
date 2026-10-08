@@ -92,21 +92,105 @@ class Critique(_Contract):
     fixes: list[NonEmptyStr] = Field(default_factory=list)
 
 
-class Usage(_Contract):
+class NodeUsage(_Contract):
+    """What one graph node spent. Repeat visits of the same node are summed (BF-27)."""
+
+    node: NonEmptyStr
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
     cost_usd: float = Field(default=0.0, ge=0.0)
 
     @property
     def total_tokens(self) -> int:
-        return self.input_tokens + self.output_tokens
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_write_tokens
+            + self.cache_read_tokens
+        )
+
+
+def _merge_nodes(left: list[NodeUsage], right: list[NodeUsage]) -> list[NodeUsage]:
+    """Sum entries that name the same node, keeping the order nodes were first seen."""
+    merged: dict[str, NodeUsage] = {}
+    order: list[str] = []
+    for item in (*left, *right):
+        current = merged.get(item.node)
+        if current is None:
+            order.append(item.node)
+            merged[item.node] = item
+            continue
+        merged[item.node] = NodeUsage(
+            node=item.node,
+            input_tokens=current.input_tokens + item.input_tokens,
+            output_tokens=current.output_tokens + item.output_tokens,
+            cache_write_tokens=current.cache_write_tokens + item.cache_write_tokens,
+            cache_read_tokens=current.cache_read_tokens + item.cache_read_tokens,
+            cost_usd=current.cost_usd + item.cost_usd,
+        )
+    return [merged[name] for name in order]
+
+
+class Usage(_Contract):
+    """Tokens and USD for one call, one node, or a whole run.
+
+    `input_tokens` are the uncached input tokens. Cache writes and cache reads are counted
+    separately because providers bill them at different rates (BF-27). `total_tokens` includes
+    all four, so the run's token budget counts cached context too. `nodes` is empty until the
+    graph attributes a node's spend; the reducer sums a node that runs more than once.
+    """
+
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0.0)
+    nodes: list[NodeUsage] = Field(default_factory=list)
+
+    @property
+    def total_tokens(self) -> int:
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_write_tokens
+            + self.cache_read_tokens
+        )
 
     def __add__(self, other: "Usage") -> "Usage":
         # The reducer that accumulates usage across nodes (see `RunState`).
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
             cost_usd=self.cost_usd + other.cost_usd,
+            nodes=_merge_nodes(self.nodes, other.nodes),
+        )
+
+    def attributed_to(self, node: str) -> "Usage":
+        """A copy that records these totals under `node` for the cost report.
+
+        The graph calls this once, on the usage a node returns. A usage that is already
+        attributed, or that spent nothing, is returned unchanged so it is not listed twice
+        and a zero-cost node does not add an empty row.
+        """
+        if self.nodes or (self.total_tokens == 0 and self.cost_usd == 0.0):
+            return self
+        return self.model_copy(
+            update={
+                "nodes": [
+                    NodeUsage(
+                        node=node,
+                        input_tokens=self.input_tokens,
+                        output_tokens=self.output_tokens,
+                        cache_write_tokens=self.cache_write_tokens,
+                        cache_read_tokens=self.cache_read_tokens,
+                        cost_usd=self.cost_usd,
+                    )
+                ]
+            }
         )
 
 

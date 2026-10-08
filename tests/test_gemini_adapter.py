@@ -61,6 +61,7 @@ def make_response(
     prompt_tokens: int | None = 100,
     answer_tokens: int | None = 40,
     thought_tokens: int | None = 10,
+    cached_tokens: int | None = 0,
     with_usage: bool = True,
 ) -> types.GenerateContentResponse:
     parts = parts if parts is not None else [types.Part(text="{}")]
@@ -75,6 +76,7 @@ def make_response(
                 prompt_token_count=prompt_tokens,
                 candidates_token_count=answer_tokens,
                 thoughts_token_count=thought_tokens,
+                cached_content_token_count=cached_tokens,
             )
             if with_usage
             else None
@@ -101,7 +103,22 @@ def test_returns_text_and_counts_thinking_tokens_as_output() -> None:
     assert result.text == "{}"
     assert result.input_tokens == 100
     assert result.output_tokens == 50  # 40 answer + 10 thinking
+    assert result.cache_read_tokens == 0
     assert result.outcome == "complete"
+
+
+def test_cached_prompt_tokens_are_split_out_of_the_input_count() -> None:
+    # Gemini's prompt_token_count includes the cached prefix. 100 prompt, 40 of them cached.
+    client = FakeClient(
+        make_response(prompt_tokens=100, cached_tokens=40, thought_tokens=0, answer_tokens=10)
+    )
+
+    result = call(GeminiAdapter(client), system="You write ads.")
+
+    assert result.input_tokens == 60
+    assert result.cache_read_tokens == 40
+    assert result.cache_write_tokens == 0
+    assert result.output_tokens == 10
 
 
 def test_request_shape() -> None:
@@ -155,7 +172,7 @@ def test_missing_usage_metadata_counts_as_zero_tokens() -> None:
 
     result = call(GeminiAdapter(client))
 
-    assert (result.input_tokens, result.output_tokens) == (0, 0)
+    assert (result.input_tokens, result.output_tokens, result.cache_read_tokens) == (0, 0, 0)
 
 
 @pytest.mark.parametrize(

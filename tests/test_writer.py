@@ -29,6 +29,7 @@ class FakeCompleter:
         self._replies = list(replies)
         self._usage = usage or Usage(input_tokens=10, output_tokens=5, cost_usd=0.001)
         self.calls: list[tuple[str, type[WriterReply], Tier, Settings | None]] = []
+        self.systems: list[str | None] = []
 
     def __call__(
         self,
@@ -37,9 +38,11 @@ class FakeCompleter:
         tier: Tier,
         /,
         *,
+        system: str | None = None,
         settings: Settings | None = None,
     ) -> tuple[WriterReply, Usage]:
         self.calls.append((prompt, schema, tier, settings))
+        self.systems.append(system)
         return self._replies.pop(0), self._usage
 
 
@@ -259,6 +262,25 @@ def test_unknown_prompt_version_fails_before_any_model_call(
 
 def test_reply_schema_is_portable() -> None:
     assert schema_problems(WriterReply) == []
+
+
+def test_brand_and_rubric_are_cached_and_examples_are_not() -> None:
+    fake = FakeCompleter([_reply(1)])
+
+    write_variants(
+        _state(_plan(["search"]), [_example("search", "Search ex")]),
+        settings=IsolatedSettings(),
+        complete=fake,
+    )
+
+    system = fake.systems[0]
+    assert system is not None
+    assert "Brand: voltride" in system
+    assert "Unmistakably Voltride" in system
+    assert "Search ex" not in system
+    assert "Search ex" in fake.calls[0][0]
+    assert "<!-- cache -->" not in system
+    assert "<!-- cache -->" not in fake.calls[0][0]
 
 
 def test_node_returns_only_variants_and_usage_when_nothing_went_wrong() -> None:

@@ -60,26 +60,76 @@ class ModelTiers(BaseModel):
 
 
 class TierPrice(BaseModel):
-    """USD per million tokens for the model currently assigned to a tier."""
+    """USD per million tokens for the model currently assigned to a tier.
+
+    Cache multipliers override the provider's rates for this tier only. Leave them unset to
+    use the provider default. Sonnet 5.5 and Opus 5.5 publish a 0.05x cache read, which is
+    not Anthropic's 0.1x default, so the strong and judge tiers set the read override.
+    """
 
     input_per_mtok: float = Field(ge=0)
     output_per_mtok: float = Field(ge=0)
+    cache_write_multiplier: float | None = Field(default=None, ge=0)
+    cache_read_multiplier: float | None = Field(default=None, ge=0)
+
+
+class CacheRates(BaseModel):
+    """Multipliers on a tier's input price for prompt-cache writes and reads (BF-27)."""
+
+    write_multiplier: float = Field(ge=0)
+    read_multiplier: float = Field(ge=0)
 
 
 class Pricing(BaseModel):
-    """Tier -> price. Change a tier's model and its price together.
+    """Tier prices plus one cache rate per provider. Change a tier's model and its price together.
 
-    Defaults match Anthropic's published base prices for the default tiers.
-    Cache read/write pricing is out of scope until prompt caching lands (BF-27).
+    Defaults match the published base prices for the default tiers. Cache rates are per provider
+    because Anthropic and Gemini do not bill a cached prefix the same way (ADR 0021):
+
+    - Anthropic's 5-minute ephemeral cache: writes at 1.25x the input price, reads at 0.1x.
+    - Gemini implicit caching: a hit is reported as cached input and billed at 0.1x (a 90%
+      discount). A miss is ordinary input, so there is no write premium to apply.
+
+    A tier's `cache_read_multiplier` or `cache_write_multiplier`, when set, replaces the
+    provider rate for that side. An unknown provider is billed at 1x for both, which is the
+    full input price.
     """
 
-    strong: TierPrice = TierPrice(input_per_mtok=2.0, output_per_mtok=10.0)
+    strong: TierPrice = TierPrice(
+        input_per_mtok=2.0, output_per_mtok=10.0, cache_read_multiplier=0.05
+    )
     fast: TierPrice = TierPrice(input_per_mtok=1.0, output_per_mtok=5.0)
-    judge: TierPrice = TierPrice(input_per_mtok=4.0, output_per_mtok=20.0)
+    judge: TierPrice = TierPrice(
+        input_per_mtok=4.0, output_per_mtok=20.0, cache_read_multiplier=0.05
+    )
+    anthropic_cache: CacheRates = CacheRates(write_multiplier=1.25, read_multiplier=0.1)
+    gemini_cache: CacheRates = CacheRates(write_multiplier=1.0, read_multiplier=0.1)
 
     def for_tier(self, tier: Tier) -> TierPrice:
         price: TierPrice = getattr(self, tier)
         return price
+
+    def rates_for(self, provider: str, tier: Tier) -> CacheRates:
+        """The cache multipliers for this call: the provider's, unless the tier overrides one."""
+        if provider == "anthropic":
+            base = self.anthropic_cache
+        elif provider == "gemini":
+            base = self.gemini_cache
+        else:
+            base = CacheRates(write_multiplier=1.0, read_multiplier=1.0)
+        price = self.for_tier(tier)
+        return CacheRates(
+            write_multiplier=(
+                base.write_multiplier
+                if price.cache_write_multiplier is None
+                else price.cache_write_multiplier
+            ),
+            read_multiplier=(
+                base.read_multiplier
+                if price.cache_read_multiplier is None
+                else price.cache_read_multiplier
+            ),
+        )
 
 
 class Budgets(BaseModel):
@@ -147,13 +197,16 @@ class Settings(BaseSettings):
     budgets: Budgets = Budgets()
     thresholds: Thresholds = Thresholds()
     retrieval_enabled: bool = True  # used by BF-32
-    baseline_prompt_version: str = "v1"  # prompts/baseline_<version>.md
+    # v2 splits the static prefix (instructions and brand profile) off for prompt caching.
+    # v1 is the same words as one message, with no cache break. The repair prompt has no
+    # static prefix of its own: a repair keeps the system prompt of the call it corrects.
+    baseline_prompt_version: str = "v2"  # prompts/baseline_<version>.md
     baseline_variants_per_channel: int = Field(default=3, ge=1, le=10)
-    planner_prompt_version: str = "v1"  # prompts/planner_<version>.md
+    planner_prompt_version: str = "v2"  # prompts/planner_<version>.md
     planner_max_variants_per_channel: int = Field(default=5, ge=1, le=10)
-    writer_prompt_version: str = "v1"  # prompts/writer_<version>.md
-    critic_prompt_version: str = "v1"  # prompts/critic_<version>.md
-    reviser_prompt_version: str = "v1"  # prompts/reviser_<version>.md
+    writer_prompt_version: str = "v2"  # prompts/writer_<version>.md
+    critic_prompt_version: str = "v2"  # prompts/critic_<version>.md
+    reviser_prompt_version: str = "v2"  # prompts/reviser_<version>.md
     repair_prompt_version: str = "v1"  # prompts/repair_<version>.md (gateway schema repair)
 
     # Paths

@@ -393,6 +393,28 @@ def test_reviser_usage_is_added_to_the_run_total(brief: Brief) -> None:
     assert state["usage"].cost_usd == pytest.approx(0.007)
 
 
+def test_cost_is_attributed_to_each_node_and_a_second_visit_is_summed(brief: Brief) -> None:
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        write=FakeWrite(),
+        critique=ScriptedCritique(
+            [False, True], usage=Usage(input_tokens=20, output_tokens=10, cost_usd=0.003)
+        ),
+        revise=FakeRevise(Usage(input_tokens=500, output_tokens=100, cost_usd=0.004)),
+    )
+
+    by_node = {item.node: item for item in state["usage"].nodes}
+    assert list(by_node) == ["planner", "writer", "critic", "reviser"]
+    assert by_node["planner"].input_tokens == 10
+    assert by_node["critic"].input_tokens == 40  # the critic ran twice
+    assert by_node["critic"].cost_usd == pytest.approx(0.006)
+    assert by_node["reviser"].cost_usd == pytest.approx(0.004)
+    assert state["result"] is not None
+    assert state["result"].usage.nodes == state["usage"].nodes
+
+
 def test_the_assembler_runs_last_and_sees_the_final_state(brief: Brief) -> None:
     assemble = FakeAssemble()
 

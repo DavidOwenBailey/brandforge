@@ -1,12 +1,12 @@
 """Anthropic adapter tests. The Anthropic client is faked: no network, no API key, no cost."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import anthropic
 import httpx2  # the HTTP library the Anthropic SDK is built on; its errors wrap its objects
 import pytest
-from anthropic.types import Message, MessageParam, OutputConfigParam
+from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockParam
 from pydantic_settings import SettingsConfigDict
 
 from brandforge.config import Settings
@@ -43,7 +43,7 @@ class FakeMessages:
         model: str,
         max_tokens: int,
         messages: list[MessageParam],
-        system: str | anthropic.Omit,
+        system: str | Iterable[TextBlockParam] | anthropic.Omit,
         output_config: OutputConfigParam,
         timeout: float,
     ) -> Message:
@@ -73,8 +73,15 @@ def make_message(
     *,
     input_tokens: int = 100,
     output_tokens: int = 50,
+    cache_write_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
     stop_reason: str = "end_turn",
 ) -> Message:
+    usage: dict[str, int] = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    if cache_write_tokens is not None:
+        usage["cache_creation_input_tokens"] = cache_write_tokens
+    if cache_read_tokens is not None:
+        usage["cache_read_input_tokens"] = cache_read_tokens
     return Message.model_validate(
         {
             "id": "msg_test",
@@ -84,7 +91,7 @@ def make_message(
             "content": content,
             "stop_reason": stop_reason,
             "stop_sequence": None,
-            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+            "usage": usage,
         }
     )
 
@@ -112,7 +119,23 @@ def test_returns_text_tokens_and_complete_outcome() -> None:
     assert result.text == "{}"
     assert result.input_tokens == 11
     assert result.output_tokens == 7
+    assert (result.cache_write_tokens, result.cache_read_tokens) == (0, 0)
     assert result.outcome == "complete"
+
+
+def test_cache_write_and_read_tokens_are_reported() -> None:
+    client = FakeClient(
+        text_message(
+            "{}", input_tokens=8, output_tokens=3, cache_write_tokens=0, cache_read_tokens=400
+        )
+    )
+
+    result = call(AnthropicAdapter(client), system="You write ads.")
+
+    # Anthropic's input_tokens already exclude the cached prefix, so it is not added back in.
+    assert result.input_tokens == 8
+    assert result.cache_write_tokens == 0
+    assert result.cache_read_tokens == 400
 
 
 def test_request_shape() -> None:
@@ -124,7 +147,9 @@ def test_request_shape() -> None:
     assert sent["model"] == "claude-test-model"
     assert sent["max_tokens"] == 777
     assert sent["timeout"] == 12.5
-    assert sent["system"] == "You write ads."
+    assert sent["system"] == [
+        {"type": "text", "text": "You write ads.", "cache_control": {"type": "ephemeral"}}
+    ]
     assert sent["messages"] == [{"role": "user", "content": "write copy"}]
     fmt = sent["output_config"]["format"]
     assert fmt["type"] == "json_schema"

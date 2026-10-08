@@ -123,6 +123,28 @@ def test_generate_prints_variants_and_cost(fake: FakeGenerate, brief_file: Path)
     assert "CTA 2" in result.stdout
     assert "Tokens: 120 in, 80 out (200 total)" in result.stdout
     assert "Cost:   $0.0012" in result.stdout
+    assert "Cost by node:" in result.stdout
+    assert "writer" in result.stdout.split("Cost by node:", 1)[1]
+
+
+def test_format_usage_lists_cache_tokens_and_one_row_per_node() -> None:
+    usage = Usage(
+        input_tokens=10,
+        output_tokens=5,
+        cache_write_tokens=100,
+        cost_usd=0.01,
+    ).attributed_to("planner") + Usage(
+        input_tokens=4, output_tokens=2, cache_read_tokens=80, cost_usd=0.002
+    ).attributed_to("critic")
+
+    text = cli.format_usage(usage)
+
+    assert "Tokens: 14 in, 7 out, 100 cache write, 80 cache read (201 total)" in text
+    assert "Cost:   $0.0120" in text
+    assert "Cost by node:" in text
+    assert "Cache write" in text
+    assert "planner" in text
+    assert "critic" in text
 
 
 def test_generate_says_tracing_is_off_when_the_run_has_no_trace(

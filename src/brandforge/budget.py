@@ -67,7 +67,7 @@ class RunBudget:
 
     @property
     def tokens_used(self) -> int:
-        """Input and output tokens used by the whole run so far."""
+        """Tokens used by the whole run so far, cache writes and reads included."""
         return self.tokens_before + self.spent.total_tokens
 
     @property

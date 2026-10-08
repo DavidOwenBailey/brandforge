@@ -69,10 +69,17 @@ def completion(
     *,
     input_tokens: int = 100,
     output_tokens: int = 50,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
     outcome: Outcome = "complete",
 ) -> RawCompletion:
     return RawCompletion(
-        text=text, input_tokens=input_tokens, output_tokens=output_tokens, outcome=outcome
+        text=text,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_write_tokens=cache_write_tokens,
+        cache_read_tokens=cache_read_tokens,
+        outcome=outcome,
     )
 
 
@@ -83,6 +90,7 @@ class ScriptedAdapter:
         self._steps = list(steps)
         self.call_count = 0
         self.prompts: list[str] = []
+        self.systems: list[str | None] = []
 
     def complete(
         self,
@@ -97,6 +105,7 @@ class ScriptedAdapter:
         step = self._steps[self.call_count]
         self.call_count += 1
         self.prompts.append(prompt)
+        self.systems.append(system)
         if isinstance(step, Exception):
             raise step
         return step
@@ -165,6 +174,47 @@ def test_tier_selects_model_and_price(tier: Tier, model: str, expected_cost: flo
     _, usage = complete_structured("p", Variant, tier, adapter=adapter, settings=IsolatedSettings())
 
     assert adapter.calls[0]["model"] == model
+    assert usage.cost_usd == pytest.approx(expected_cost)
+
+
+@pytest.mark.parametrize(
+    ("provider_model", "tier", "expected_cost"),
+    [
+        # fast, Anthropic: input $1. (10 + 1000*1.25 + 4000*0.1 + 5*5) / 1e6
+        ("anthropic:claude-haiku-4-5-20251001", "fast", (10 + 1_250 + 400 + 25) / 1e6),
+        # fast, Gemini: no write premium. (10 + 1000*1 + 4000*0.1 + 25) / 1e6
+        ("gemini:some-gemini-model", "fast", (10 + 1_000 + 400 + 25) / 1e6),
+        # strong, Anthropic, read override 0.05 and input $2.
+        # (10*2 + 1000*2*1.25 + 4000*2*0.05 + 5*10) / 1e6
+        ("anthropic:claude-sonnet-5-5", "strong", (20 + 2_500 + 400 + 50) / 1e6),
+        # strong pointed at Gemini keeps its 0.05 read override; the write rate is Gemini's 1x.
+        # (10*2 + 1000*2*1 + 4000*2*0.05 + 5*10) / 1e6
+        ("gemini:some-gemini-model", "strong", (20 + 2_000 + 400 + 50) / 1e6),
+        # unknown provider: cache tokens billed as ordinary input, fast prices.
+        ("other:some-model", "fast", (10 + 1_000 + 4_000 + 25) / 1e6),
+    ],
+)
+def test_cache_tokens_are_priced_at_the_providers_rate(
+    monkeypatch: pytest.MonkeyPatch, provider_model: str, tier: Tier, expected_cost: float
+) -> None:
+    """Cache writes and reads use the provider rate, unless the tier overrides one side.
+
+    The fast tier has no override, so Anthropic's 1.25x write and 0.1x read apply, and
+    Gemini's 1x write and 0.1x read apply. The strong tier's 0.05x read override wins even
+    when that tier points at Gemini. An unknown provider is billed at the full input price.
+    """
+    monkeypatch.setenv(f"BRANDFORGE_MODELS__{tier.upper()}", provider_model)
+    adapter = FakeAdapter(
+        completion(
+            input_tokens=10, output_tokens=5, cache_write_tokens=1_000, cache_read_tokens=4_000
+        )
+    )
+
+    _, usage = complete_structured("p", Variant, tier, adapter=adapter, settings=IsolatedSettings())
+
+    assert usage.cache_write_tokens == 1_000
+    assert usage.cache_read_tokens == 4_000
+    assert usage.total_tokens == 10 + 5 + 1_000 + 4_000
     assert usage.cost_usd == pytest.approx(expected_cost)
 
 
@@ -449,6 +499,23 @@ def test_repair_prompt_carries_the_request_the_bad_reply_and_the_problem() -> No
     assert "write the ad" in second
     assert BAD_CHANNEL in second
     assert "- channel:" in second  # which field failed, as "<field>: <message>"
+
+
+def test_a_repair_keeps_the_cached_system_prompt() -> None:
+    adapter = ScriptedAdapter(completion(BAD_CHANNEL), completion())
+
+    complete_structured(
+        "write the ad",
+        Variant,
+        "fast",
+        system="Brand rules stay here.",
+        adapter=adapter,
+        settings=IsolatedSettings(),
+    )
+
+    assert adapter.systems == ["Brand rules stay here.", "Brand rules stay here."]
+    assert adapter.prompts[0] == "write the ad"
+    assert "Brand rules stay here." not in adapter.prompts[1]
 
 
 def test_repair_prompt_describes_an_unparseable_reply_as_a_whole() -> None:

@@ -23,7 +23,11 @@ model, the prompt, the reply, the tokens and the cost. It is opened here, in the
 core, so every provider is traced the same way and no adapter knows about it. A schema repair is
 a second generation. Outside a traced run (see `brandforge.tracing`) this does nothing.
 
-Later tasks extend this module, not its callers: caching (BF-27).
+Prompt caching (BF-27): the caller passes the static prefix (instructions and brand profile) as
+`system` and the per-call text as `prompt`. The adapter marks that prefix for the provider's
+cache. This module prices the cache write and cache read tokens the adapter reports, using the
+provider's rates in config. A schema repair repeats the call with the same `system`, so the
+cached prefix is reused rather than sent again inside the repair prompt.
 """
 
 import logging
@@ -41,7 +45,7 @@ from tenacity import (
 
 from brandforge import tracing
 from brandforge.budget import current_budget
-from brandforge.config import Settings, Tier, TierPrice, get_settings
+from brandforge.config import CacheRates, Settings, Tier, TierPrice, get_settings
 from brandforge.llm.base import (
     BudgetExceededError,
     GatewayConfigError,
@@ -100,11 +104,21 @@ def _call_with_retries(call: Callable[[], RawCompletion], settings: Settings) ->
     return retrying(call)
 
 
-def _usage_from(raw: RawCompletion, price: TierPrice) -> Usage:
-    cost = (raw.input_tokens * price.input_per_mtok + raw.output_tokens * price.output_per_mtok) / (
-        1_000_000
+def _usage_from(raw: RawCompletion, price: TierPrice, rates: CacheRates) -> Usage:
+    """Price one reply. Cache tokens are multiplied on the input price, output is not cached."""
+    cost = (
+        raw.input_tokens * price.input_per_mtok
+        + raw.cache_write_tokens * price.input_per_mtok * rates.write_multiplier
+        + raw.cache_read_tokens * price.input_per_mtok * rates.read_multiplier
+        + raw.output_tokens * price.output_per_mtok
+    ) / 1_000_000
+    return Usage(
+        input_tokens=raw.input_tokens,
+        output_tokens=raw.output_tokens,
+        cache_write_tokens=raw.cache_write_tokens,
+        cache_read_tokens=raw.cache_read_tokens,
+        cost_usd=cost,
     )
-    return Usage(input_tokens=raw.input_tokens, output_tokens=raw.output_tokens, cost_usd=cost)
 
 
 def complete_structured[T: BaseModel](
@@ -241,7 +255,8 @@ def _call_and_validate[T: BaseModel](
         )
 
     raw = _call_with_retries(attempt, cfg)
-    usage = _usage_from(raw, cfg.pricing.for_tier(tier))
+    provider = cfg.models.resolve(tier).provider
+    usage = _usage_from(raw, cfg.pricing.for_tier(tier), cfg.pricing.rates_for(provider, tier))
     if budget is not None:
         budget.record(usage)
     generation.update(
@@ -249,6 +264,8 @@ def _call_and_validate[T: BaseModel](
         usage_details={
             "input": usage.input_tokens,
             "output": usage.output_tokens,
+            "cache_write_input_tokens": usage.cache_write_tokens,
+            "cache_read_input_tokens": usage.cache_read_tokens,
             "total": usage.total_tokens,
         },
         cost_details={"total": usage.cost_usd},
