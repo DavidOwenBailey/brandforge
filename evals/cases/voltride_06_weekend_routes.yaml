@@ -1,0 +1,14 @@
+id: voltride_06_weekend_routes
+brand_id: voltride
+brief:
+  product: Weekend route notes, short loops that start from Voltride stores
+  audience: riders looking for a Saturday loop near home
+  objective: consideration
+  channels: [social, search]
+  constraints:
+    - do not quote range or battery figures
+    - no safety claims
+    - search headlines max 30 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30

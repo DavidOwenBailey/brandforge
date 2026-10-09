@@ -1,0 +1,16 @@
+id: brightleaf_09_refill_pouch
+brand_id: brightleaf
+brief:
+  product: Refill pouches for Brightleaf tins the customer already owns
+  audience: existing drinkers who want to waste less packaging
+  objective: conversion
+  channels: [search, email]
+  constraints:
+    - no health claims
+    - do not mention price
+    - search headlines max 30 characters
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    email: 50

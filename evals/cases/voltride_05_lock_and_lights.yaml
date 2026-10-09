@@ -1,0 +1,16 @@
+id: voltride_05_lock_and_lights
+brand_id: voltride
+brief:
+  product: Lock and lights bundle sold with a Voltride bike
+  audience: new owners kitting out a bike for the week ahead
+  objective: awareness
+  channels: [display, email]
+  constraints:
+    - no safety claims
+    - do not quote range or battery figures
+    - display headline max 40 characters
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    display: 40
+    email: 50

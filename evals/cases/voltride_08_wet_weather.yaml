@@ -1,0 +1,14 @@
+id: voltride_08_wet_weather
+brand_id: voltride
+brief:
+  product: Voltride commuter set up for wet roads, with full fenders and a covered chain
+  audience: city riders who keep commuting when it rains
+  objective: awareness
+  channels: [email]
+  constraints:
+    - no safety claims
+    - do not quote range or battery figures
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    email: 50

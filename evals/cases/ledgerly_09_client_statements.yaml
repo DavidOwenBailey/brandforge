@@ -1,0 +1,14 @@
+id: ledgerly_09_client_statements
+brand_id: ledgerly
+brief:
+  product: Client statements that list what a customer still owes
+  audience: freelancers sending a monthly statement
+  objective: conversion
+  channels: [social, email]
+  constraints:
+    - do not promise faster payment
+    - no tax advice
+    - email subject line max 60 characters
+hard_constraints:
+  headline_max_chars:
+    email: 60

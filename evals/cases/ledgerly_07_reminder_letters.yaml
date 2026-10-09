@@ -1,0 +1,14 @@
+id: ledgerly_07_reminder_letters
+brand_id: ledgerly
+brief:
+  product: Polite reminder letters for unpaid invoices
+  audience: freelancers who dislike chasing and want a calm template
+  objective: awareness
+  channels: [display]
+  constraints:
+    - do not promise faster payment
+    - no tax advice
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    display: 40

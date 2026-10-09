@@ -1,0 +1,9 @@
+id: voltride_01_commuter_ebike
+brand_id: voltride
+brief:
+  product: Voltride commuter e-bike
+  audience: city commuters
+  objective: conversion
+  channels: [search, social]
+  constraints:
+    - no discounts

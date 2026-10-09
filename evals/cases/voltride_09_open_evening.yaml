@@ -1,0 +1,19 @@
+id: voltride_09_open_evening
+brand_id: voltride
+brief:
+  product: Thursday open evenings at local Voltride stores
+  audience: people who want to see the bikes without booking a full test ride
+  objective: conversion
+  channels: [display, email, social]
+  constraints:
+    - invite readers to come to an open evening
+    - no discounts
+    - no safety claims
+    - display headline max 40 characters
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    display: 40
+    email: 50
+  must_mention:
+    - open evening

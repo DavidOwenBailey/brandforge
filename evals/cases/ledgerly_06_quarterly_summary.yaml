@@ -1,0 +1,16 @@
+id: ledgerly_06_quarterly_summary
+brand_id: ledgerly
+brief:
+  product: Quarterly summary, a plain one-page view of income and spending
+  audience: owners who want the numbers before they speak to their accountant
+  objective: conversion
+  channels: [email, search]
+  constraints:
+    - no tax advice
+    - do not promise savings or compliance outcomes
+    - search headlines max 30 characters
+    - email subject line max 60 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    email: 60

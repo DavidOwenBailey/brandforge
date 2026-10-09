@@ -1,0 +1,18 @@
+id: ledgerly_10_year_end_pack
+brand_id: ledgerly
+brief:
+  product: Year-end pack, a checklist of the records an accountant usually asks for
+  audience: owners of firms with 10 to 50 people preparing to hand over the year
+  objective: awareness
+  channels: [search, social, display, email]
+  constraints:
+    - no tax advice
+    - do not promise a refund, a saving or a compliance outcome
+    - search headlines max 30 characters
+    - display headline max 40 characters
+    - email subject line max 60 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    display: 40
+    email: 60

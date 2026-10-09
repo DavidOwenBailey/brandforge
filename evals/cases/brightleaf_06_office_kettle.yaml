@@ -1,0 +1,14 @@
+id: brightleaf_06_office_kettle
+brand_id: brightleaf
+brief:
+  product: Office kettle pack, a box of everyday tea for a shared kitchen
+  audience: office managers who restock the kitchen once a month
+  objective: conversion
+  channels: [search, social]
+  constraints:
+    - no health claims
+    - do not mention price
+    - search headlines max 30 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30

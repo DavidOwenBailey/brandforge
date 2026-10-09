@@ -1,0 +1,16 @@
+id: ledgerly_04_receipt_capture
+brand_id: ledgerly
+brief:
+  product: Receipt capture that files a photographed receipt against the right expense
+  audience: sole traders who stuff receipts in a drawer
+  objective: awareness
+  channels: [search, display]
+  constraints:
+    - no tax advice
+    - do not promise savings or compliance outcomes
+    - search headlines max 30 characters
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    display: 40

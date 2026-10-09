@@ -1,0 +1,16 @@
+id: brightleaf_05_gift_tin
+brand_id: brightleaf
+brief:
+  product: Brightleaf gift tin, four loose-leaf teas packed for giving
+  audience: people choosing a calm present for a friend or neighbour
+  objective: consideration
+  channels: [email, display]
+  constraints:
+    - no health claims
+    - do not mention price
+    - email subject line max 50 characters
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    email: 50
+    display: 40

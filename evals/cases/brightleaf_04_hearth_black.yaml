@@ -1,0 +1,16 @@
+id: brightleaf_04_hearth_black
+brand_id: brightleaf
+brief:
+  product: Hearth black tea, an everyday loose-leaf breakfast blend
+  audience: people who want a simple morning cup without tea jargon
+  objective: awareness
+  channels: [display, search]
+  constraints:
+    - no health claims
+    - no urgency or countdown language
+    - search headlines max 30 characters
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    display: 40

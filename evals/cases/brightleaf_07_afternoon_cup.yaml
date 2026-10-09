@@ -1,0 +1,10 @@
+id: brightleaf_07_afternoon_cup
+brand_id: brightleaf
+brief:
+  product: Afternoon Cup, a light black tea for a mid-afternoon pause
+  audience: desk workers who want a break that is not coffee
+  objective: awareness
+  channels: [social]
+  constraints:
+    - no health claims
+    - no urgency or countdown language

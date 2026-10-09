@@ -1,0 +1,13 @@
+id: voltride_02_summit_hill_edition
+brand_id: voltride
+brief:
+  product: Voltride Summit, a hill-climbing e-bike
+  audience: weekend riders in hilly areas
+  objective: awareness
+  channels: [social, display]
+  constraints:
+    - do not quote range or battery figures
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    display: 40
