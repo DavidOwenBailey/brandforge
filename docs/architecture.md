@@ -182,6 +182,8 @@ The evaluation answers one question: does the full pipeline produce better on-br
 1. **Baseline:** one prompt with the brief and brand profile, same model as the writer.  
 2. **Pipeline:** the full graph.
 
+**Runner:** promptfoo. `evals/promptfooconfig.yaml` lists both systems as Python providers and one test per case from `load_cases`. `promptfoo eval` runs every case through both. The promptfoo prompt is the case id. Each provider loads that case and calls the baseline or the graph, which still use the versioned prompt files. Both return one JSON row: variants, status, tokens and cost. The baseline has no critic, so `flagged` is null on its rows. A provider that cannot produce a row returns an error and the rest of the run continues (ADR 0027). Deterministic assertions and the judge rubric are added on top of this row. How the pieces connect, and how to run a case, is in [promptfoo.md](promptfoo.md).
+
 **Three layers of checks**
 
 | Layer | Tool | What it checks | Pass rule |
@@ -239,6 +241,7 @@ brandforge/
 ├── docs/  
 │   ├── architecture.md       # this document  
 │   ├── langfuse.md           # cloud free tier, and the optional local stack  
+│   ├── promptfoo.md          # eval runner: providers, the JSON row, how to run a case  
 │   └── adr/                  # 0001-langgraph.md, 0002-revision-cap.md, ...  
 ├── src/brandforge/  
 │   ├── config.py             # settings, model tiers, budgets  
@@ -255,11 +258,12 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
-│   ├── evals/                # case loader for evals/cases (BF-33)  
+│   ├── evals/                # case loader (BF-33); promptfoo providers (BF-34)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
-│   ├── promptfooconfig.yaml  # baseline vs pipeline providers, assertions, rubric  
+│   ├── providers/            # promptfoo Python providers: baseline and pipeline (BF-34)  
+│   ├── promptfooconfig.yaml  # runs both providers over the cases (BF-34)  
 │   ├── calibration/          # your hand scores  
 │   └── results/              # committed run summaries  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  

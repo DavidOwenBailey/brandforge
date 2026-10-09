@@ -1,0 +1,11 @@
+"""promptfoo provider for the full graph (BF-34)."""
+
+from collections.abc import Mapping
+from typing import Any
+
+from brandforge.evals import promptfoo
+
+
+def call_api(prompt: str, options: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
+    """Run one eval case through the pipeline. promptfoo calls this."""
+    return promptfoo.call_pipeline(prompt, options, context)

@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Baseline vs pipeline (BF-34). Assertions and the judge rubric come later.
+#
+# From the repo root, with the project environment available:
+#   npx promptfoo@latest eval --config evals/promptfooconfig.yaml
+# Promptfoo has to import brandforge. If it picks another interpreter, set
+# PROMPTFOO_PYTHON to the path printed by:
+#   uv run python -c "import sys; print(sys.executable)"
+description: BrandForge baseline vs pipeline
+
+prompts:
+  - "{{case_id}}"
+
+providers:
+  - id: file://providers/baseline.py
+    label: baseline
+  - id: file://providers/pipeline.py
+    label: pipeline
+    config:
+      # One pipeline is several model calls. The worker default is five minutes.
+      timeout: 600000
+
+tests:
+  - file://providers/tests.py:generate_tests
+
+# The model prompts live in prompts/, not in this prompt, so a prompt edit
+# would not change promptfoo's cache key. The cache stays off.
+# One case at a time: each pipeline run already makes several model calls.
+# Override on the CLI with --max-concurrency when you want more.
+commandLineOptions:
+  cache: false
+  maxConcurrency: 1
