@@ -2,10 +2,12 @@
 
 The graph runs the planner (BF-13), the retriever (BF-31), the writer (BF-14) and the brand
 critic (BF-15). The retriever writes the nearest approved examples for each channel into state.
-An empty index leaves that list empty, logs a warning and the run continues (ADR 0024). After
-the critic, the router (BF-16) decides: `revise` goes to the reviser (BF-17) and back to the
-critic, at most `budgets.max_revisions` times; `assemble` and `stop` both go to the assembler
-(BF-18), which packages the `RunResult` and sets the final status. No other node touches
+An empty index leaves that list empty, logs a warning and the run continues (ADR 0024).
+With `retrieval_enabled` off the node still runs, writes an empty list and does not search
+(BF-32, ADR 0025). After the critic, the router (BF-16) decides: `revise` goes to the
+reviser (BF-17) and back to the critic, at most `budgets.max_revisions` times; `assemble`
+and `stop` both go to the assembler (BF-18), which packages the `RunResult` and sets the
+final status. No other node touches
 `status`, so it stays `running` until the assembler runs. The single-prompt baseline is no
 longer part of the graph: the evals call it directly.
 

@@ -200,7 +200,10 @@ class Settings(BaseSettings):
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()
     thresholds: Thresholds = Thresholds()
-    retrieval_enabled: bool = True  # BF-32 switches the retriever off; BF-31 does not read this
+    # Master switch for the retriever (BF-32, ADR 0025). Off writes an empty example list
+    # and does not search, so evals can compare the pipeline with and without examples.
+    # `brandforge index` ignores this flag (ADR 0023).
+    retrieval_enabled: bool = True
     # Nearest approved examples the retriever fetches for each channel in the plan (BF-31).
     # The architecture asks for the 3-5 nearest. See ADR 0024.
     retrieval_examples_per_channel: int = Field(default=4, ge=1, le=5)
