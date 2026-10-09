@@ -1,0 +1,64 @@
+# Approved Ledgerly ads (BF-29). Fictional. Loaded by retrieval/corpus.py.
+# brand_id must match this filename.
+brand_id: ledgerly
+examples:
+  - channel: search
+    headline: "VAT dates, in one list"
+    body: "Ledgerly lists each VAT deadline and reminds you seven days before it."
+    cta: "See the deadline list"
+  - channel: search
+    headline: "A nudge for late invoices"
+    body: "When an invoice passes its due date, Ledgerly drafts a polite reminder. You send it."
+    cta: "See invoice reminders"
+  - channel: search
+    headline: "A checklist for month-end"
+    body: "Twelve close steps, from the bank reconciliation to the final export, in order."
+    cta: "Open the checklist"
+  - channel: search
+    headline: "Receipts, filed as you go"
+    body: "Photograph a receipt. Ledgerly stores it under the expense category you pick."
+    cta: "Try receipt capture"
+  - channel: social
+    headline: "Seven days before the deadline"
+    body: "Ledgerly keeps your VAT dates in one list. A reminder arrives a week before each date and names the period. You still prepare the return. The date stays where you can see it."
+    cta: "View your VAT dates"
+  - channel: social
+    headline: "The invoice is nine days late"
+    body: "When a client passes the due date, Ledgerly prepares a short note with the invoice number and the amount. You read it. Nothing goes out until you send it."
+    cta: "Set up invoice notes"
+  - channel: social
+    headline: "Close, in twelve steps"
+    body: "Bank reconciliation, unpaid invoices, expense review, then the export. The checklist shows what is done and what is left. It is built for teams of 10 to 50 people."
+    cta: "Read the checklist"
+  - channel: social
+    headline: "Mileage, written down the same day"
+    body: "Record the trip, the miles and the reason while you still remember them. Ledgerly keeps that month's trips in one list for your records."
+    cta: "Start a mileage log"
+  - channel: display
+    headline: "VAT dates, written down"
+    body: "A reminder seven days before each deadline."
+    cta: "See your dates"
+  - channel: display
+    headline: "Polite notes for late invoices"
+    body: "The amount, the number and the due date, ready for your review."
+    cta: "Review a sample note"
+  - channel: display
+    headline: "Month-end, step by step"
+    body: "A twelve-step checklist for the close."
+    cta: "Look at the steps"
+  - channel: display
+    headline: "Match the bank to the books"
+    body: "See which transactions still need a category."
+    cta: "Open reconciliation"
+  - channel: email
+    headline: "Your VAT dates for the quarter"
+    body: "This quarter has two dates on your list. Ledgerly reminds you seven days before each one, with the period and the date. The note does not tell you what to file."
+    cta: "Open the date list"
+  - channel: email
+    headline: "Three invoices passed their date"
+    body: "Three invoices are past due. Each has a short note ready, with the number and the amount. Nothing is sent until you approve it."
+    cta: "Review the notes"
+  - channel: email
+    headline: "The month-end list is ready"
+    body: "Twelve steps, in order. The bank reconciliation comes first and the export comes last. You mark a step when it is done."
+    cta: "Open this month's list"

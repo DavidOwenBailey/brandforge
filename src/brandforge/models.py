@@ -204,7 +204,11 @@ class Plan(_Contract):
 
 
 class Example(_Contract):
-    """An approved piece of copy retrieved as a style reference (written by BF-31)."""
+    """An approved piece of copy used as a style reference.
+
+    The approved corpus is YAML under ``retrieval/examples`` (BF-29). The retriever
+    (BF-31) selects from it and puts the matches in state.
+    """
 
     brand_id: NonEmptyStr
     channel: Channel

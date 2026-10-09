@@ -1,0 +1,64 @@
+# Approved Voltride ads (BF-29). Fictional. Loaded by retrieval/corpus.py.
+# brand_id must match this filename.
+brand_id: voltride
+examples:
+  - channel: search
+    headline: "Ride the commute"
+    body: "The Voltride commuter sits you upright and moves as the light turns green."
+    cta: "See the commuter"
+  - channel: search
+    headline: "Hills, meet the Summit"
+    body: "Point the Summit at the climb you usually skip. Stay in the saddle and reach the top."
+    cta: "See the Summit"
+  - channel: search
+    headline: "Fold it. Board the train."
+    body: "Ride to the station, fold it, and finish the trip from the other platform."
+    cta: "See the Fold"
+  - channel: search
+    headline: "Book a weekend test ride"
+    body: "Saturday and Sunday slots at your local store. You bring shoes. We set up the bike."
+    cta: "Book your slot"
+  - channel: social
+    headline: "Green light. You are gone."
+    body: "The commuter pulls away with you as the light changes. Six miles of city street later, you roll up at the office. This is the ride to work."
+    cta: "Take the commuter out"
+  - channel: social
+    headline: "The hill is still there. You just climb it."
+    body: "Take the Summit up the road you usually avoid. Keep pedalling. Reach the top, then take the next rise. Weekend riders, this bike is for you."
+    cta: "Meet the Summit"
+  - channel: social
+    headline: "Train, then bike, then train"
+    body: "Fold it on the platform. It stands next to you in the carriage. Unfold at the far end and ride the last part. One bike covers both halves of the trip."
+    cta: "See the Fold"
+  - channel: social
+    headline: "Twenty minutes in the saddle"
+    body: "Come to a Voltride store this weekend. Twenty minutes on the commuter, the Fold or the Summit. Book a slot, show up and ride your own loop."
+    cta: "Book a test ride"
+  - channel: display
+    headline: "The ride to work"
+    body: "Upright and direct, for the ride through town."
+    cta: "See the commuter"
+  - channel: display
+    headline: "Climb the hill you skip"
+    body: "The Summit, for weekend riders who like a climb."
+    cta: "See the Summit"
+  - channel: display
+    headline: "Folds beside your seat"
+    body: "Ride to the station. Fold it. Board."
+    cta: "See the Fold"
+  - channel: display
+    headline: "This weekend, you ride"
+    body: "Book a test ride at a Voltride store."
+    cta: "Pick a slot"
+  - channel: email
+    headline: "Your commute, on two wheels"
+    body: "The Voltride commuter is built for the ride in. Sit upright, watch the lane, and go when the light turns green. Book a test ride on your own route."
+    cta: "Find a commuter"
+  - channel: email
+    headline: "Fold it for the carriage"
+    body: "Ride to the station. Fold the Voltride Fold and stand with it on the train. At the other end, unfold and ride the rest. Both halves of the trip, one bike."
+    cta: "Look at the Fold"
+  - channel: email
+    headline: "A slot is open this weekend"
+    body: "Test rides run on Saturday and Sunday. You get twenty minutes on the bike you want to try. Book a time and we will have it out for you."
+    cta: "Book your test ride"
