@@ -30,6 +30,8 @@ A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `co
 
 `uv run brandforge index` embeds the approved examples for those brands. A generate run then retrieves the nearest examples for each channel. With no index, the run logs a warning and writes the copy without them. `BRANDFORGE_RETRIEVAL_ENABLED=false` skips that search on purpose, which is how an eval compares the pipeline with and without examples.
 
+The offline comparison of that pipeline with the single-prompt baseline is in [docs/promptfoo.md](docs/promptfoo.md). A real run calls the models. `uv run poe check` does not.
+
 ## Project layout
 
 ```text

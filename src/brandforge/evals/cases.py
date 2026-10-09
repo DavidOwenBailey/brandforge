@@ -1,8 +1,9 @@
 """Load the fixed eval dataset (BF-33).
 
-Each case is one YAML file in the repo's ``evals/cases/`` directory. The file
-holds the case id, the brand id, the brief, and any hard constraints a string
-check can decide. ``load_cases`` reads the whole set.
+Each case is one YAML file in the repo's ``evals/cases/`` directory, next to
+the promptfoo config. The file holds the case id, the brand id, the brief,
+and any hard constraints a string check can decide. ``load_cases`` reads the
+whole set.
 """
 
 import re
