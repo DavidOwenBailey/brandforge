@@ -1,0 +1,18 @@
+id: brightleaf_08_origin_flight
+brand_id: brightleaf
+brief:
+  product: Origin flight, three single-origin teas to taste side by side
+  audience: curious drinkers who have only tried tea bags
+  objective: consideration
+  channels: [email, search, display]
+  constraints:
+    - no tea jargon
+    - no health claims
+    - search headlines max 30 characters
+    - email subject line max 50 characters
+    - display headline max 40 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    email: 50
+    display: 40

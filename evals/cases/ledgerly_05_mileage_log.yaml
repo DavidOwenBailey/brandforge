@@ -1,0 +1,14 @@
+id: ledgerly_05_mileage_log
+brand_id: ledgerly
+brief:
+  product: Mileage log that records a client trip in one note
+  audience: sole traders who drive to clients and reconstruct the miles later
+  objective: consideration
+  channels: [email, social]
+  constraints:
+    - no tax advice
+    - do not promise a refund or a deduction
+    - email subject line max 60 characters
+hard_constraints:
+  headline_max_chars:
+    email: 60

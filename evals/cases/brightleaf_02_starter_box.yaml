@@ -1,0 +1,13 @@
+id: brightleaf_02_starter_box
+brand_id: brightleaf
+brief:
+  product: Loose-leaf starter box with six teas
+  audience: people new to loose-leaf tea
+  objective: consideration
+  channels: [search, display]
+  constraints:
+    - no tea jargon
+    - search headlines max 30 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30

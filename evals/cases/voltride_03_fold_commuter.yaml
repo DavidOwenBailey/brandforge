@@ -1,0 +1,13 @@
+id: voltride_03_fold_commuter
+brand_id: voltride
+brief:
+  product: Voltride Fold, a folding e-bike
+  audience: commuters who combine train and bike
+  objective: consideration
+  channels: [search, display, email]
+  constraints:
+    - no safety claims
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    email: 50

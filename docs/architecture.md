@@ -175,7 +175,7 @@ Model IDs and prices are from Anthropic's [models overview](https://platform.cla
 
 The evaluation answers one question: does the full pipeline produce better on-brand copy than a single prompt, and at what cost? It runs offline against a fixed dataset, so results are comparable between changes.
 
-**Dataset:** 3 brands × 10 briefs = 30 cases, stored as YAML under evals/. Each case has the brief, the brand ID, and any hard constraints.
+**Dataset:** 3 brands × 10 briefs = 30 cases, one YAML file each under `evals/cases/`. Each case has an id, the brand id, the brief, and any hard constraints a string check can decide: a headline character cap per channel, and phrases the copy must mention. A cap is recorded only when the brief states that same number, so the check matches the instruction the model saw. Banned words stay on the brand profile. The ten CLI sample briefs are the first cases for their brands, with the same brief text. `load_cases` reads and validates the directory (ADR 0026).
 
 **Two systems under test**
 
@@ -255,9 +255,10 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
+│   ├── evals/                # case loader for evals/cases (BF-33)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
-│   ├── cases/                # 30 brief cases (YAML)  
+│   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
 │   ├── promptfooconfig.yaml  # baseline vs pipeline providers, assertions, rubric  
 │   ├── calibration/          # your hand scores  
 │   └── results/              # committed run summaries  

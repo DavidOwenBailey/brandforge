@@ -1,0 +1,19 @@
+id: voltride_10_which_bike
+brand_id: voltride
+brief:
+  product: A short guide to choosing between the commuter, the Fold and the Summit
+  audience: riders who know they want an e-bike and not which model
+  objective: consideration
+  channels: [search, social, display, email]
+  constraints:
+    - do not quote range or battery figures
+    - no safety claims
+    - no discounts
+    - search headlines max 30 characters
+    - display headline max 40 characters
+    - email subject line max 50 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
+    display: 40
+    email: 50

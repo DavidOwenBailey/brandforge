@@ -1,0 +1,13 @@
+id: ledgerly_02_invoice_chasing
+brand_id: ledgerly
+brief:
+  product: Automated reminders for overdue invoices
+  audience: freelancers waiting on late client payments
+  objective: conversion
+  channels: [search, social]
+  constraints:
+    - do not promise faster payment
+    - search headlines max 30 characters
+hard_constraints:
+  headline_max_chars:
+    search: 30
