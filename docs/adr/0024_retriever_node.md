@@ -40,8 +40,9 @@ empty result is not an exception.
   the search.
 - **No usage.** Embeddings are local and free, so the node returns no `usage` key and does
   not appear in the cost report.
-- **`retrieval_enabled` is not read.** That flag is the with/without comparison (BF-32). This
-  node always searches. The flag stays in config, default on, for that later change.
+- **`retrieval_enabled` was left unread here.** That flag is the with/without comparison.
+  BF-32, recorded in ADR 0025, is what makes the node honour it. This decision always
+  searches.
 
 ## Alternatives considered
 
@@ -57,9 +58,9 @@ empty result is not an exception.
   for this reason.
 - **An LLM-written search query.** Closer paraphrases, and a model call the retriever is not
   supposed to make. The tier for this node is embeddings only.
-- **Honour `retrieval_enabled` here.** Small, but it is a separate done-when (BF-32) so evals
-  can compare the two arms. Wiring it in this change would hide that comparison inside the
-  node.
+- **Honour `retrieval_enabled` here.** Small, but it is a separate done-when (BF-32) so the
+  comparison stays visible as its own change. ADR 0025 is that change. Wiring the flag into
+  this one would have hidden it.
 
 ## Consequences
 
@@ -70,8 +71,8 @@ empty result is not an exception.
   plan has no product field, and the product is what the examples are about.
 - **Trade-off accepted:** four channels embed the same query four times. The text is short
   and the model is local.
-- **Trade-off accepted:** `BRANDFORGE_RETRIEVAL_ENABLED=false` does nothing until BF-32.
-  The retriever cannot be switched off by config yet.
+- **Trade-off accepted at the time:** `BRANDFORGE_RETRIEVAL_ENABLED=false` did nothing until
+  BF-32. ADR 0025 has since made the retriever honour that flag.
 - **Trade-off accepted:** a retriever that raises (a corrupt index, not an empty one) ends
   the run `failed` with the plan kept and no variants. That is the same error edge as a
   failed writer, and it is a different case from an empty result.

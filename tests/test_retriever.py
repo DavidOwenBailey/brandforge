@@ -213,6 +213,30 @@ def test_a_hit_is_logged_at_info_and_not_as_empty(logs: io.StringIO) -> None:
     assert not any(event["event"] == "retrieval_empty" for event in events)
 
 
+def test_retrieval_disabled_writes_no_examples_and_does_not_search(logs: io.StringIO) -> None:
+    settings = IsolatedSettings(retrieval_enabled=False)
+
+    update = retrieve_examples(_state(), settings=settings, search=Boom())
+
+    assert update == {"examples": []}
+    assert "errors" not in update
+    events = _events(logs)
+    info = next(event for event in events if event["event"] == "retrieval_disabled")
+    assert info["level"] == "info"
+    assert info["brand_id"] == "voltride"
+    assert not any(event["event"] == "retrieval_empty" for event in events)
+    assert not any(event["event"] == "retrieved_examples" for event in events)
+
+
+def test_retrieval_disabled_still_requires_a_plan() -> None:
+    state = _state()
+    state["plan"] = None
+    settings = IsolatedSettings(retrieval_enabled=False)
+
+    with pytest.raises(ValueError, match="needs a plan"):
+        retrieve_examples(state, settings=settings, search=Boom())
+
+
 def test_the_retriever_refuses_to_search_without_a_plan() -> None:
     search = FakeSearch(SearchResult(examples=[], reason="no_index"))
     state = _state()
@@ -278,3 +302,60 @@ def test_a_missing_index_inside_the_graph_continues_with_no_examples(
     warning = next(event for event in _events(logs) if event["event"] == "retrieval_empty")
     assert warning["reason"] == "no_index"
     assert warning["run_id"] == "run-empty"
+
+
+def test_retrieval_disabled_inside_the_graph_skips_the_search(
+    logs: io.StringIO, index_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real node, with the flag off. The search must not run, and the writer still does."""
+    monkeypatch.setattr(
+        "brandforge.agents.retriever.get_settings",
+        lambda: IsolatedSettings(chroma_dir=index_dir, retrieval_enabled=False),
+    )
+    seen: list[RunState] = []
+
+    def plan(state: RunState) -> dict[str, Any]:
+        return {
+            "plan": Plan(
+                audience="commuters",
+                angle="save time",
+                channels=list(state["brief"].channels),
+                variants_per_channel=1,
+            ),
+            "usage": Usage(),
+        }
+
+    def write(state: RunState) -> dict[str, Any]:
+        seen.append(state)
+        variant = Variant(id="search-1", channel="search", headline="H", body="B", cta="C")
+        return {"variants": [variant], "usage": Usage()}
+
+    def critique(state: RunState) -> dict[str, Any]:
+        return {
+            "critiques": [
+                Critique(variant_id=variant.id, scores={"voice": 5}, overall=5.0, passed=True)
+                for variant in state["variants"]
+            ],
+            "usage": Usage(),
+        }
+
+    state = run_graph(
+        _brief(),
+        load_brand("voltride"),
+        plan=plan,
+        write=write,
+        critique=critique,
+        retrieve=retrieve_examples,
+        run_id="run-off",
+    )
+
+    assert seen[0]["examples"] == []
+    assert state["examples"] == []
+    assert state["errors"] == []
+    assert state["status"] == "complete"
+    assert not index_dir.exists()
+    events = _events(logs)
+    info = next(event for event in events if event["event"] == "retrieval_disabled")
+    assert info["level"] == "info"
+    assert info["run_id"] == "run-off"
+    assert not any(event["event"] == "retrieval_empty" for event in events)

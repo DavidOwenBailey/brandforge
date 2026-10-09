@@ -26,6 +26,7 @@ def test_defaults_match_architecture() -> None:
     assert s.pricing.strong.cache_read_multiplier == 0.05
     assert s.pricing.fast.cache_read_multiplier is None
     assert s.chroma_dir == Path(".brandforge/chroma")
+    assert s.retrieval_enabled is True
     assert s.retrieval_examples_per_channel == 4
 
 
@@ -46,6 +47,11 @@ def test_resolve_default_tiers() -> None:
 def test_malformed_model_ref_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_model_ref(bad)
+
+
+def test_retrieval_enabled_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_RETRIEVAL_ENABLED", "false")
+    assert IsolatedSettings().retrieval_enabled is False
 
 
 def test_retrieval_examples_per_channel_override(monkeypatch: pytest.MonkeyPatch) -> None:

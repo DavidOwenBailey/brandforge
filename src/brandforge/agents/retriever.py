@@ -6,7 +6,10 @@ cannot crowd out another. The reasoning is in ADR 0024.
 
 An empty result (no index, no collection, or nothing for these channels) is not a failure.
 The node logs a warning and returns an empty list, and the writer runs with no examples
-section. It does not read `retrieval_enabled`; switching retrieval off is BF-32.
+section.
+
+`retrieval_enabled` (BF-32, ADR 0025) switches that search off. The node still runs, writes
+an empty list and does not open the index, so an eval can compare the two arms.
 """
 
 from collections.abc import Sequence
@@ -45,13 +48,17 @@ def retrieve_examples(
     """Graph node: reads `brief`, `brand` and `plan`; returns `examples`.
 
     Returns no other keys. An empty result is not an error, so the run stays able to finish
-    `complete`. Raises `ValueError` when there is no plan; handling that is the graph's job
-    (BF-22).
+    `complete`. With `retrieval_enabled` off, returns an empty list and does not search.
+    Raises `ValueError` when there is no plan, whether or not retrieval is on; handling that
+    is the graph's job (BF-22).
     """
     plan = state["plan"]
     if plan is None:
         raise ValueError("The retriever needs a plan; run the planner first.")
     cfg = settings if settings is not None else get_settings()
+    if not cfg.retrieval_enabled:
+        logger.info("retrieval_disabled", brand_id=state["brand"].id)
+        return {"examples": []}
     found = search(
         state["brand"].id,
         query_text(state["brief"], plan),
