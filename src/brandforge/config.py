@@ -200,7 +200,10 @@ class Settings(BaseSettings):
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()
     thresholds: Thresholds = Thresholds()
-    retrieval_enabled: bool = True  # used by BF-32
+    retrieval_enabled: bool = True  # BF-32 switches the retriever off; BF-31 does not read this
+    # Nearest approved examples the retriever fetches for each channel in the plan (BF-31).
+    # The architecture asks for the 3-5 nearest. See ADR 0024.
+    retrieval_examples_per_channel: int = Field(default=4, ge=1, le=5)
     # v2 splits the static prefix (instructions and brand profile) off for prompt caching.
     # v1 is the same words as one message, with no cache break. The repair prompt has no
     # static prefix of its own: a repair keeps the system prompt of the call it corrects.

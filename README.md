@@ -28,11 +28,13 @@ The same run writes structured logs to stderr: one JSON object per line, each ca
 
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.
 
+`uv run brandforge index` embeds the approved examples for those brands. A generate run then retrieves the nearest examples for each channel. With no index, the run logs a warning and writes the copy without them.
+
 ## Project layout
 
 ```text
 src/brandforge/
-├── agents/        # planner, writer, critic, reviser, assembler
+├── agents/        # planner, retriever, writer, critic, reviser, assembler
 ├── llm/           # LLM gateway and per-provider adapters: retries, token accounting
 ├── retrieval/     # brand example index and retriever
 └── interfaces/    # CLI, API and demo page

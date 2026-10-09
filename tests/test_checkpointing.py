@@ -99,18 +99,26 @@ def _run_and_read(brief: Brief, db: Path, run_id: str, **nodes: Any) -> list[Run
 def test_state_is_saved_after_every_node_and_read_back_in_order(brief: Brief, db: Path) -> None:
     steps = _run_and_read(brief, db, "run-1", plan=_plan, write=_write, critique=_critique(True))
 
-    assert [step.node for step in steps] == [None, "planner", "writer", "critic", "assembler"]
-    assert [step.step for step in steps] == [0, 1, 2, 3, 4]
+    assert [step.node for step in steps] == [
+        None,
+        "planner",
+        "retriever",
+        "writer",
+        "critic",
+        "assembler",
+    ]
+    assert [step.step for step in steps] == [0, 1, 2, 3, 4, 5]
     assert [step.next_nodes for step in steps] == [
         ("planner",),
+        ("retriever",),
         ("writer",),
         ("critic",),
         ("assembler",),
         (),
     ]
-    assert [step.state["status"] for step in steps] == ["running"] * 4 + ["complete"]
-    assert [len(step.state["variants"]) for step in steps] == [0, 0, 1, 1, 1]
-    assert [step.state["usage"].total_tokens for step in steps] == [0, 15, 165, 165, 165]
+    assert [step.state["status"] for step in steps] == ["running"] * 5 + ["complete"]
+    assert [len(step.state["variants"]) for step in steps] == [0, 0, 0, 1, 1, 1]
+    assert [step.state["usage"].total_tokens for step in steps] == [0, 15, 15, 165, 165, 165]
     assert steps[-1].state["result"] is not None
     assert steps[0].created_at is not None
 
@@ -180,13 +188,14 @@ def test_each_revision_pass_gets_its_own_checkpoints(brief: Brief, db: Path) -> 
     assert [step.node for step in steps] == [
         None,
         "planner",
+        "retriever",
         "writer",
         "critic",
         "reviser",
         "critic",
         "assembler",
     ]
-    assert [step.state["revision_count"] for step in steps] == [0, 0, 0, 0, 1, 1, 1]
+    assert [step.state["revision_count"] for step in steps] == [0, 0, 0, 0, 0, 1, 1, 1]
 
 
 def test_a_node_that_fails_leaves_its_error_in_the_checkpoints(brief: Brief, db: Path) -> None:
@@ -195,7 +204,7 @@ def test_a_node_that_fails_leaves_its_error_in_the_checkpoints(brief: Brief, db:
 
     steps = _run_and_read(brief, db, "run-1", plan=_plan, write=broken_write)
 
-    assert [step.node for step in steps] == [None, "planner", "writer", "assembler"]
+    assert [step.node for step in steps] == [None, "planner", "retriever", "writer", "assembler"]
     last = steps[-1].state
     assert last["status"] == "failed"
     assert [(e.node, e.fatal) for e in last["errors"]] == [("writer", True)]
@@ -219,7 +228,7 @@ def test_a_run_cut_short_can_still_be_read_up_to_the_last_node(brief: Brief, db:
     with open_checkpointer(db, create=False) as saver:
         steps = load_run_steps(saver, "run-1")
 
-    assert [step.node for step in steps] == [None, "planner", "writer"]
+    assert [step.node for step in steps] == [None, "planner", "retriever", "writer"]
     assert steps[-1].next_nodes == ("critic",)
     assert steps[-1].state["status"] == "running"
     assert len(steps[-1].state["variants"]) == 1

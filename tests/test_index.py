@@ -15,9 +15,11 @@ from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_
 from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
+from brandforge.agents.retriever import retrieve_examples
+from brandforge.brands import load_brand
 from brandforge.config import Settings
 from brandforge.interfaces import cli
-from brandforge.models import Example
+from brandforge.models import Brief, Channel, Example, Plan, new_run_state
 from brandforge.retrieval import ExampleLoadError, list_example_brand_ids, load_examples
 from brandforge.retrieval import index as index_module
 from brandforge.retrieval.index import (
@@ -29,6 +31,7 @@ from brandforge.retrieval.index import (
     index_examples,
     open_client,
 )
+from brandforge.retrieval.query import SearchResult, search_examples
 
 runner = CliRunner()
 
@@ -315,3 +318,200 @@ def test_cli_unknown_brand_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert result.exit_code == 1
     assert "Unknown brand" in result.output
     assert not store.exists()
+
+
+# --- search (BF-31) -----------------------------------------------------------------
+
+
+def _index_ads(tmp_path: Path, brand_id: str, ads: list[tuple[str, str, str, str]]) -> Path:
+    examples = tmp_path / "examples"
+    examples.mkdir(parents=True, exist_ok=True)
+    store = tmp_path / "chroma"
+    _write_brand(examples, brand_id, ads)
+    index_examples([brand_id], examples_dir=examples, persist_dir=store, embedder=HashEmbedder())
+    return store
+
+
+def _ad(brand_id: str, channel: Channel, headline: str, body: str, cta: str) -> Example:
+    return Example(brand_id=brand_id, channel=channel, headline=headline, body=body, cta=cta)
+
+
+def test_search_ranks_the_matching_ad_first_and_stays_on_the_channel(tmp_path: Path) -> None:
+    ride = _ad("acme", "search", "Ride the commute", "Sit upright and go.", "See it")
+    fold = _ad("acme", "search", "Fold it under the desk", "The fold is for the train.", "Compare")
+    email = _ad("acme", "email", "Your slot is Saturday", "Twenty minutes in the store.", "Book it")
+    store = _index_ads(
+        tmp_path,
+        "acme",
+        [
+            (ride.channel, ride.headline, ride.body, ride.cta),
+            (fold.channel, fold.headline, fold.body, fold.cta),
+            (email.channel, email.headline, email.body, email.cta),
+        ],
+    )
+
+    found = search_examples(
+        "acme", example_document(fold), ["search"], per_channel=2, persist_dir=store
+    )
+
+    assert found.reason == "ok"
+    assert found.examples[0] == fold
+    assert found.examples == [fold, ride]
+
+
+def test_search_keeps_the_channels_in_the_order_it_was_asked(tmp_path: Path) -> None:
+    ride = _ad("acme", "search", "Ride the commute", "Sit upright and go.", "See it")
+    email = _ad("acme", "email", "Your slot is Saturday", "Twenty minutes in the store.", "Book it")
+    store = _index_ads(
+        tmp_path,
+        "acme",
+        [
+            (ride.channel, ride.headline, ride.body, ride.cta),
+            (email.channel, email.headline, email.body, email.cta),
+        ],
+    )
+
+    found = search_examples(
+        "acme",
+        example_document(email),
+        ["email", "search"],
+        per_channel=4,
+        persist_dir=store,
+    )
+
+    assert [item.channel for item in found.examples] == ["email", "search"]
+    assert found.examples[0] == email
+
+
+def test_search_does_not_borrow_examples_from_another_channel(tmp_path: Path) -> None:
+    email = _ad("acme", "email", "Your slot is Saturday", "Twenty minutes in the store.", "Book it")
+    store = _index_ads(tmp_path, "acme", [(email.channel, email.headline, email.body, email.cta)])
+
+    found = search_examples(
+        "acme", example_document(email), ["search"], per_channel=4, persist_dir=store
+    )
+
+    assert found == SearchResult(examples=[], reason="no_matches")
+
+
+def test_search_caps_each_channel_and_returns_fewer_when_the_channel_has_fewer(
+    tmp_path: Path,
+) -> None:
+    ads = [
+        _ad("acme", "search", f"Headline {n}", f"Body {n} is longer than the headline.", "Go")
+        for n in range(6)
+    ]
+    store = _index_ads(tmp_path, "acme", [(ad.channel, ad.headline, ad.body, ad.cta) for ad in ads])
+
+    capped = search_examples(
+        "acme", example_document(ads[0]), ["search"], per_channel=4, persist_dir=store
+    )
+    one = _index_ads(
+        tmp_path / "one",
+        "acme",
+        [(ads[0].channel, ads[0].headline, ads[0].body, ads[0].cta)],
+    )
+    short = search_examples("acme", "Headline", ["search"], per_channel=4, persist_dir=one)
+
+    assert capped.reason == "ok"
+    assert len(capped.examples) == 4
+    assert capped.examples[0] == ads[0]
+    assert short.examples == [ads[0]]
+
+
+def test_a_missing_index_is_empty_and_creates_nothing(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    assert search_examples(
+        "acme", "query", ["search"], per_channel=4, persist_dir=missing
+    ) == SearchResult(examples=[], reason="no_index")
+    assert search_examples(
+        "acme", "query", ["search"], per_channel=4, persist_dir=empty
+    ) == SearchResult(examples=[], reason="no_index")
+    assert not missing.exists()
+    assert list(empty.iterdir()) == []
+
+
+def test_a_brand_with_no_collection_is_empty(tmp_path: Path) -> None:
+    store = _index_ads(tmp_path, "acme", [("search", "One", "A body.", "Go")])
+
+    found = search_examples("other", "query", ["search"], per_channel=4, persist_dir=store)
+
+    assert found == SearchResult(examples=[], reason="no_collection")
+
+
+def test_search_does_not_return_another_brands_examples(tmp_path: Path) -> None:
+    examples = tmp_path / "examples"
+    examples.mkdir()
+    store = tmp_path / "chroma"
+    _write_brand(examples, "acme", [("search", "Acme rides", "Acme body.", "Go")])
+    _write_brand(examples, "other", [("search", "Other rides", "Other body.", "Stop")])
+    index_examples(
+        ["acme", "other"], examples_dir=examples, persist_dir=store, embedder=HashEmbedder()
+    )
+
+    found = search_examples("acme", "rides", ["search"], per_channel=4, persist_dir=store)
+
+    assert [item.brand_id for item in found.examples] == ["acme"]
+    assert found.examples[0].headline == "Acme rides"
+
+
+def test_a_record_that_cannot_be_rebuilt_is_skipped(tmp_path: Path) -> None:
+    good = _ad("acme", "search", "Ride the commute", "Sit upright and go.", "See it")
+    store = _index_ads(tmp_path, "acme", [(good.channel, good.headline, good.body, good.cta)])
+    open_client(store).get_collection("acme").add(
+        ids=["bad"],
+        documents=["Headline: broken\nBody: broken.\nCTA: broken"],
+        metadatas=[{"channel": "search"}],
+    )
+
+    found = search_examples(
+        "acme", example_document(good), ["search"], per_channel=4, persist_dir=store
+    )
+
+    assert found.examples == [good]
+
+
+def test_per_channel_must_be_at_least_one(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="per_channel"):
+        search_examples("acme", "query", ["search"], per_channel=0, persist_dir=tmp_path)
+
+
+def test_the_retriever_node_writes_one_brands_examples_for_each_plan_channel(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "chroma"
+    index_examples(["voltride"], persist_dir=store, embedder=HashEmbedder())
+    state = new_run_state(
+        Brief(
+            product="Commuter e-bike",
+            audience="city commuters",
+            objective="conversion",
+            channels=["search", "email"],
+        ),
+        load_brand("voltride"),
+    )
+    state["plan"] = Plan(
+        audience="Time-poor commuters",
+        angle="Beat the traffic",
+        channels=["search", "email"],
+        variants_per_channel=1,
+    )
+
+    update = retrieve_examples(
+        state, settings=IsolatedSettings(chroma_dir=store, retrieval_examples_per_channel=4)
+    )
+
+    assert set(update) == {"examples"}
+    examples = update["examples"]
+    assert examples
+    assert all(item.brand_id == "voltride" for item in examples)
+    seen: list[str] = []
+    for item in examples:
+        if not seen or seen[-1] != item.channel:
+            seen.append(item.channel)
+    assert seen == ["search", "email"]
+    assert 1 <= sum(item.channel == "search" for item in examples) <= 4
+    assert 1 <= sum(item.channel == "email" for item in examples) <= 4

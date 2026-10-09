@@ -1,1 +1,1 @@
-"""Agent nodes: planner, writer, critic, reviser, assembler (M2)."""
+"""Agent nodes: planner, retriever, writer, critic, reviser, assembler."""

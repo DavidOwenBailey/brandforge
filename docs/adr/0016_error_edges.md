@@ -76,3 +76,5 @@ What each failure leaves behind:
   BF-25.
 - **Extended in BF-23:** the guard also installs the run budget around each node, and keeps the
   usage of a `BudgetExceededError` as it does for a `StructuredOutputError` (0017).
+- **Extended in BF-31:** the retriever is guarded the same way. An empty retrieval is not a
+  failure and does not take the error edge (0024).

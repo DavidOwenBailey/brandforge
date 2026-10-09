@@ -1,5 +1,6 @@
 """CLI tests. The model is faked by replacing the planner, writer, critic and reviser in the
-graph module. Checkpoints go to a database in the test's temp folder, never the working one."""
+graph module, and the retriever returns no examples. Checkpoints go to a database in the
+test's temp folder, never the working one."""
 
 import json
 import re
@@ -371,7 +372,7 @@ def test_inspect_shows_the_state_after_each_node(fake: FakeGenerate, brief_file:
     result = runner.invoke(cli.app, ["inspect", run_id])
 
     assert result.exit_code == 0
-    assert f"Run {run_id}: 5 checkpoints" in result.stdout
+    assert f"Run {run_id}: 6 checkpoints" in result.stdout
     rows = [line.split() for line in result.stdout.splitlines()]
     header = ["Step", "After", "Variants", "Passed", "Revisions", "Errors"]
     assert rows[2][: len(header)] == header
@@ -379,16 +380,21 @@ def test_inspect_shows_the_state_after_each_node(fake: FakeGenerate, brief_file:
     assert after == [
         ["0", "(input)"],
         ["1", "planner"],
-        ["2", "writer"],
-        ["3", "critic"],
-        ["4", "assembler"],
+        ["2", "retriever"],
+        ["3", "writer"],
+        ["4", "critic"],
+        ["5", "assembler"],
     ]
-    # Step 2, after the writer: two variants, none scored yet, due to be critiqued next.
-    writer_row = next(row for row in rows if row[:2] == ["2", "writer"])
+    # Step 2, after the retriever: nothing written yet, the writer is next.
+    retriever_row = next(row for row in rows if row[:2] == ["2", "retriever"])
+    assert retriever_row[2:6] == ["0", "0/0", "0", "0"]
+    assert retriever_row[-2:] == ["running", "writer"]
+    # Step 3, after the writer: two variants, none scored yet, due to be critiqued next.
+    writer_row = next(row for row in rows if row[:2] == ["3", "writer"])
     assert writer_row[2:6] == ["2", "0/0", "0", "0"]
     assert writer_row[-2:] == ["running", "critic"]
     # The last step has finished: both variants passed, and nothing is due to run.
-    assert rows[-1][:2] == ["4", "assembler"]
+    assert rows[-1][:2] == ["5", "assembler"]
     assert rows[-1][-2:] == ["complete", "-"]
     assert rows[-1][2:4] == ["2", "2/2"]
     assert "Errors:" not in result.stdout
@@ -415,7 +421,7 @@ def test_inspect_step_prints_the_full_state_after_that_step_as_json(
 ) -> None:
     run_id = _generate(brief_file)
 
-    result = runner.invoke(cli.app, ["inspect", run_id, "--step", "2"])
+    result = runner.invoke(cli.app, ["inspect", run_id, "--step", "3"])
 
     assert result.exit_code == 0
     state = json.loads(result.stdout)
@@ -434,7 +440,7 @@ def test_inspect_step_that_does_not_exist_lists_the_steps_there_are(
     result = runner.invoke(cli.app, ["inspect", run_id, "--step", "9"])
 
     assert result.exit_code == 1
-    assert "has no step 9 (steps: 0, 1, 2, 3, 4)" in result.output
+    assert "has no step 9 (steps: 0, 1, 2, 3, 4, 5)" in result.output
 
 
 def test_inspect_an_unknown_run_fails_cleanly(fake: FakeGenerate, brief_file: Path) -> None:
