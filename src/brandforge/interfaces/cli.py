@@ -1,9 +1,10 @@
-"""Typer CLI: `brandforge generate --brand X --brief brief.yaml` and `brandforge inspect <run_id>`.
+"""Typer CLI: `brandforge generate`, `brandforge index` and `brandforge inspect <run_id>`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
 variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
 run ID and the Langfuse trace ID (BF-25). The state is checkpointed after every node (BF-24),
-and `inspect` reads it back by run ID.
+and `inspect` reads it back by run ID. `index` embeds the approved examples into one persistent
+Chroma collection per brand (BF-30).
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -27,6 +28,8 @@ from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
 from brandforge.logging import configure_logging
 from brandforge.models import Brief, RunResult, Usage, Variant
+from brandforge.retrieval import ExampleLoadError
+from brandforge.retrieval.index import IndexBuildError, IndexedBrand, index_examples
 
 app = typer.Typer(
     help="Turn a creative brief into on-brand ad copy.",
@@ -181,6 +184,14 @@ def format_usage(usage: Usage) -> str:
     return "\n".join(lines)
 
 
+def format_index_result(indexed: IndexedBrand) -> str:
+    """One line for a brand that was written into the persistent index."""
+    return (
+        f"Indexed {indexed.count} examples for {indexed.brand_id} "
+        f"into collection {indexed.collection!r} at {indexed.persist_dir}"
+    )
+
+
 def format_run_steps(run_id: str, steps: list[RunStep]) -> str:
     """One row per checkpoint: the state of the run after each node, oldest first.
 
@@ -281,6 +292,31 @@ def generate(
     typer.echo(f"Trace ID: {result.trace_id}" if result.trace_id else "Trace ID: (tracing is off)")
     if result.status == "failed":
         raise typer.Exit(code=1)
+
+
+@app.command("index")
+def index_brands(
+    brand: Annotated[
+        str | None,
+        typer.Option(
+            "--brand",
+            help="Brand to index. Defaults to every brand with approved examples.",
+        ),
+    ] = None,
+) -> None:
+    """Embed approved examples into a persistent Chroma collection per brand."""
+    try:
+        indexed = index_examples(
+            None if brand is None else [brand],
+            persist_dir=get_settings().chroma_dir,
+        )
+    except (ExampleLoadError, IndexBuildError, OSError) as exc:
+        _fail(str(exc))
+
+    if not indexed:
+        _fail("no example brands to index")
+    for item in indexed:
+        typer.echo(format_index_result(item))
 
 
 @app.command("inspect")

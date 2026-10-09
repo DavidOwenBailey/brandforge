@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic_settings import SettingsConfigDict
 
@@ -23,6 +25,7 @@ def test_defaults_match_architecture() -> None:
     assert s.pricing.gemini_cache.read_multiplier == 0.1
     assert s.pricing.strong.cache_read_multiplier == 0.05
     assert s.pricing.fast.cache_read_multiplier is None
+    assert s.chroma_dir == Path(".brandforge/chroma")
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +45,11 @@ def test_resolve_default_tiers() -> None:
 def test_malformed_model_ref_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_model_ref(bad)
+
+
+def test_chroma_dir_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_CHROMA_DIR", "data/chroma")
+    assert IsolatedSettings().chroma_dir == Path("data/chroma")
 
 
 def test_secrets_are_masked(monkeypatch: pytest.MonkeyPatch) -> None:

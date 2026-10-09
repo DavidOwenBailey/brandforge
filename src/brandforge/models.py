@@ -206,8 +206,9 @@ class Plan(_Contract):
 class Example(_Contract):
     """An approved piece of copy used as a style reference.
 
-    The approved corpus is YAML under ``retrieval/examples`` (BF-29). The retriever
-    (BF-31) selects from it and puts the matches in state.
+    The approved corpus is YAML under ``retrieval/examples`` (BF-29). ``brandforge index``
+    embeds that corpus into one persistent Chroma collection per brand (BF-30). The retriever
+    (BF-31) selects from the index and puts the matches in state.
     """
 
     brand_id: NonEmptyStr

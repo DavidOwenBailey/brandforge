@@ -216,6 +216,9 @@ class Settings(BaseSettings):
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
     checkpoint_db: Path = Path(".brandforge/checkpoints.sqlite")
+    # Persistent Chroma directory for `brandforge index` (BF-30, ADR 0023). One collection
+    # per brand. Git-ignored with the rest of `.brandforge/`.
+    chroma_dir: Path = Path(".brandforge/chroma")
 
     @property
     def langfuse_configured(self) -> bool:
