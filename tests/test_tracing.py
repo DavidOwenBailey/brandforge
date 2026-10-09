@@ -186,11 +186,18 @@ def test_a_run_is_one_trace_with_a_span_per_node(
     assert state["result"].trace_id == expected
 
     spans = _spans(exporter)
-    assert set(spans) == {"brandforge.run", "planner", "writer", "critic", "assembler"}
+    assert set(spans) == {
+        "brandforge.run",
+        "planner",
+        "retriever",
+        "writer",
+        "critic",
+        "assembler",
+    }
     assert {_trace_id(s) for group in spans.values() for s in group} == {expected}
 
     root = spans["brandforge.run"][0]
-    for node in ("planner", "writer", "critic", "assembler"):
+    for node in ("planner", "retriever", "writer", "critic", "assembler"):
         (span,) = spans[node]
         assert _parent_id(span) == root.context.span_id
 
@@ -210,7 +217,14 @@ def test_a_checkpointed_run_is_traced_the_same_way(
 
     spans = _spans(exporter)
     assert {_trace_id(s) for group in spans.values() for s in group} == {state["trace_id"]}
-    assert set(spans) == {"brandforge.run", "planner", "writer", "critic", "assembler"}
+    assert set(spans) == {
+        "brandforge.run",
+        "planner",
+        "retriever",
+        "writer",
+        "critic",
+        "assembler",
+    }
 
 
 def test_the_trace_carries_the_brand_and_the_run_summary(
@@ -245,6 +259,8 @@ def test_a_node_span_records_the_prompt_version_and_a_summary(
     assert (planner.attributes or {})["langfuse.version"] == "planner_v2"
     assert '"tokens": 15' in _attr(planner, "output")
     assert "langfuse.version" not in (assembler.attributes or {})  # no prompt, so no version
+    (retriever,) = spans["retriever"]
+    assert "langfuse.version" not in (retriever.attributes or {})  # embeddings only, no prompt
 
 
 def test_a_failed_node_is_an_error_span_and_the_run_still_ends_at_the_assembler(

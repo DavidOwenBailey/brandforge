@@ -1,7 +1,7 @@
-"""Approved example corpus (BF-29). The Chroma index build is `retrieval.index` (BF-30).
+"""Approved example corpus (BF-29).
 
-Importing this package loads the corpus only. The index imports Chroma, so it stays in its
-own module.
+Importing this package loads the corpus only. The Chroma index (`retrieval.index`, BF-30) and
+the search (`retrieval.query`, BF-31) stay in their own modules, because both import Chroma.
 """
 
 from brandforge.retrieval.corpus import ExampleLoadError, list_example_brand_ids, load_examples

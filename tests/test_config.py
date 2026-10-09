@@ -26,6 +26,7 @@ def test_defaults_match_architecture() -> None:
     assert s.pricing.strong.cache_read_multiplier == 0.05
     assert s.pricing.fast.cache_read_multiplier is None
     assert s.chroma_dir == Path(".brandforge/chroma")
+    assert s.retrieval_examples_per_channel == 4
 
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +46,20 @@ def test_resolve_default_tiers() -> None:
 def test_malformed_model_ref_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_model_ref(bad)
+
+
+def test_retrieval_examples_per_channel_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_RETRIEVAL_EXAMPLES_PER_CHANNEL", "5")
+    assert IsolatedSettings().retrieval_examples_per_channel == 5
+
+
+@pytest.mark.parametrize("bad", ["0", "6"])
+def test_retrieval_examples_per_channel_rejects_values_outside_1_to_5(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_RETRIEVAL_EXAMPLES_PER_CHANNEL", bad)
+    with pytest.raises(ValueError):
+        IsolatedSettings()
 
 
 def test_chroma_dir_override(monkeypatch: pytest.MonkeyPatch) -> None:

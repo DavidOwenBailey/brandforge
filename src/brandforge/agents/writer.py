@@ -2,8 +2,8 @@
 
 The writer makes one call per channel in the plan. Channels, variant ids and the number of
 variants kept are all set in code, so the model cannot add a channel, reuse an id or flood the
-run with extra copy. Examples are optional: with none (the retriever arrives later, BF-31) the
-prompt simply has no examples section.
+run with extra copy. Examples are optional: with none, the prompt has no examples section.
+The retriever (BF-31) fills `state["examples"]` when the index has matches for the channel.
 """
 
 from typing import Any, Protocol

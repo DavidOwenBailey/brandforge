@@ -1,17 +1,20 @@
 """The LangGraph pipeline: nodes, edges and the entry point the CLI and evals call.
 
-The graph runs the planner (BF-13), the writer (BF-14) and the brand critic (BF-15). After the
-critic, the router (BF-16) decides: `revise` goes to the reviser (BF-17) and back to the critic,
-at most `budgets.max_revisions` times; `assemble` and `stop` both go to the assembler (BF-18),
-which packages the `RunResult` and sets the final status. No other node touches `status`, so it
-stays `running` until the assembler runs. The single-prompt baseline is no longer part of the
-graph: the evals call it directly.
+The graph runs the planner (BF-13), the retriever (BF-31), the writer (BF-14) and the brand
+critic (BF-15). The retriever writes the nearest approved examples for each channel into state.
+An empty index leaves that list empty, logs a warning and the run continues (ADR 0024). After
+the critic, the router (BF-16) decides: `revise` goes to the reviser (BF-17) and back to the
+critic, at most `budgets.max_revisions` times; `assemble` and `stop` both go to the assembler
+(BF-18), which packages the `RunResult` and sets the final status. No other node touches
+`status`, so it stays `running` until the assembler runs. The single-prompt baseline is no
+longer part of the graph: the evals call it directly.
 
-Error edges (BF-22): the planner, writer, critic and reviser each run inside a guard. If one
-raises after the gateway's retries, the guard records a fatal `RunError` (and the usage of any
-failed calls) instead of letting the exception out, and the edge after that node sends the run to
-the assembler with whatever state exists. The assembler then ends it `partial` or `failed`, so a
-run always returns a result. The assembler is not guarded: it is plain code over state.
+Error edges (BF-22): the planner, retriever, writer, critic and reviser each run inside a guard.
+If one raises after the gateway's retries, the guard records a fatal `RunError` (and the usage of
+any failed calls) instead of letting the exception out, and the edge after that node sends the
+run to the assembler with whatever state exists. The assembler then ends it `partial` or `failed`,
+so a run always returns a result. An empty retrieval is not a failure and does not take this
+edge. The assembler is not guarded: it is plain code over state.
 
 Run budget (BF-23): the same guard installs the run's token and wall-clock budget around each
 node (`brandforge.budget`), which is what the gateway checks before every model call. A node
@@ -53,6 +56,7 @@ from brandforge import tracing
 from brandforge.agents.assembler import assemble_result
 from brandforge.agents.critic import critique_variants
 from brandforge.agents.planner import plan_brief
+from brandforge.agents.retriever import retrieve_examples
 from brandforge.agents.reviser import revise_variants
 from brandforge.agents.writer import write_variants
 from brandforge.budget import RunBudget, active_budget
@@ -77,6 +81,7 @@ slog = get_logger(__name__)
 Node = Callable[[RunState], dict[str, Any]]
 
 PLANNER_NODE = "planner"
+RETRIEVER_NODE = "retriever"
 WRITER_NODE = "writer"
 CRITIC_NODE = "critic"
 REVISER_NODE = "reviser"
@@ -176,7 +181,7 @@ def _halted(state: RunState) -> bool:
 
 
 def _continue_or_assemble(state: RunState) -> Literal["continue", "assemble"]:
-    """The edge after the planner, writer and reviser: carry on unless a node failed."""
+    """The edge after the planner, retriever, writer and reviser: carry on unless a node failed."""
     return "assemble" if _halted(state) else "continue"
 
 
@@ -192,11 +197,14 @@ def build_graph(
     revise: Node | None = None,
     assemble: Node | None = None,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
+    *,
+    retrieve: Node | None = None,
 ) -> CompiledStateGraph[RunState, None, RunState, RunState]:
-    """Compile the graph. `plan`, `write`, `critique`, `revise` and `assemble` default to the
-    real agents, looked up at call time so tests can replace them. With a `checkpointer`, state
-    is saved after every node (BF-24)."""
+    """Compile the graph. `plan`, `retrieve`, `write`, `critique`, `revise` and `assemble`
+    default to the real agents, looked up at call time so tests can replace them. With a
+    `checkpointer`, state is saved after every node (BF-24)."""
     planner = _traced(PLANNER_NODE, _guarded(PLANNER_NODE, plan or plan_brief))
+    retriever = _traced(RETRIEVER_NODE, _guarded(RETRIEVER_NODE, retrieve or retrieve_examples))
     writer = _traced(WRITER_NODE, _guarded(WRITER_NODE, write or write_variants))
     critic = _traced(CRITIC_NODE, _guarded(CRITIC_NODE, critique or critique_variants))
     reviser = _traced(REVISER_NODE, _guarded(REVISER_NODE, revise or revise_variants))
@@ -204,6 +212,9 @@ def build_graph(
 
     def planner_node(state: RunState) -> dict[str, Any]:
         return planner(state)
+
+    def retriever_node(state: RunState) -> dict[str, Any]:
+        return retriever(state)
 
     def writer_node(state: RunState) -> dict[str, Any]:
         return writer(state)
@@ -219,6 +230,7 @@ def build_graph(
 
     builder = StateGraph(RunState)
     builder.add_node(PLANNER_NODE, planner_node)
+    builder.add_node(RETRIEVER_NODE, retriever_node)
     builder.add_node(WRITER_NODE, writer_node)
     builder.add_node(CRITIC_NODE, critic_node)
     builder.add_node(REVISER_NODE, reviser_node)
@@ -226,6 +238,11 @@ def build_graph(
     builder.add_edge(START, PLANNER_NODE)
     builder.add_conditional_edges(
         PLANNER_NODE,
+        _continue_or_assemble,
+        {"continue": RETRIEVER_NODE, "assemble": ASSEMBLER_NODE},
+    )
+    builder.add_conditional_edges(
+        RETRIEVER_NODE,
         _continue_or_assemble,
         {"continue": WRITER_NODE, "assemble": ASSEMBLER_NODE},
     )
@@ -257,6 +274,7 @@ def run_graph(
     critique: Node | None = None,
     revise: Node | None = None,
     assemble: Node | None = None,
+    retrieve: Node | None = None,
     run_id: str | None = None,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
 ) -> RunState:
@@ -273,7 +291,9 @@ def run_graph(
     The run's `run_id` is bound onto the logs for the whole call (BF-26), including when the run
     raises, and a `run_started` / `run_finished` pair is written around it.
     """
-    graph = build_graph(plan, write, critique, revise, assemble, checkpointer=checkpointer)
+    graph = build_graph(
+        plan, write, critique, revise, assemble, checkpointer=checkpointer, retrieve=retrieve
+    )
     settings = get_settings()
     state = new_run_state(brief, brand, run_id=run_id)
     state["trace_id"] = tracing.trace_id_for(state["run_id"], settings)

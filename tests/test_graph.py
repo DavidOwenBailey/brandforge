@@ -1,5 +1,5 @@
-"""The graph: planner, writer, critic and the revision loop, with typed state, reducers and
-error edges."""
+"""The graph: planner, retriever, writer, critic and the revision loop, with typed state,
+reducers and error edges."""
 
 from typing import Any
 
@@ -14,6 +14,7 @@ from brandforge.graph import (
     ASSEMBLER_NODE,
     CRITIC_NODE,
     PLANNER_NODE,
+    RETRIEVER_NODE,
     REVISER_NODE,
     WRITER_NODE,
     build_graph,
@@ -24,6 +25,7 @@ from brandforge.llm.gateway import RawCompletion, complete_structured
 from brandforge.models import (
     Brief,
     Critique,
+    Example,
     Plan,
     RunError,
     RunState,
@@ -82,6 +84,23 @@ class FakePlan:
             variants_per_channel=2,
         )
         return {"plan": plan, "usage": Usage(input_tokens=10, output_tokens=5, cost_usd=0.002)}
+
+
+class FakeRetrieve:
+    """Stands in for the retriever: records the state and returns the examples it was given."""
+
+    def __init__(
+        self, examples: list[Example] | None = None, error: Exception | None = None
+    ) -> None:
+        self.examples = list(examples or [])
+        self.error = error
+        self.calls: list[RunState] = []
+
+    def __call__(self, state: RunState) -> dict[str, Any]:
+        self.calls.append(state)
+        if self.error is not None:
+            raise self.error
+        return {"examples": self.examples}
 
 
 class FakeWrite:
@@ -200,6 +219,7 @@ def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser
     assert set(nodes.nodes) == {
         "__start__",
         PLANNER_NODE,
+        RETRIEVER_NODE,
         WRITER_NODE,
         CRITIC_NODE,
         REVISER_NODE,
@@ -209,8 +229,10 @@ def test_graph_runs_the_planner_writer_and_critic_then_loops_through_the_reviser
     edges = {(e.source, e.target) for e in nodes.edges}
     assert edges == {
         ("__start__", PLANNER_NODE),
-        (PLANNER_NODE, WRITER_NODE),
+        (PLANNER_NODE, RETRIEVER_NODE),
         (PLANNER_NODE, ASSEMBLER_NODE),
+        (RETRIEVER_NODE, WRITER_NODE),
+        (RETRIEVER_NODE, ASSEMBLER_NODE),
         (WRITER_NODE, CRITIC_NODE),
         (WRITER_NODE, ASSEMBLER_NODE),
         (CRITIC_NODE, REVISER_NODE),
@@ -243,6 +265,69 @@ def test_run_graph_returns_variants_critiques_and_complete_status(brief: Brief) 
     assert state["result"].run_id == "run-1"
     assert state["result"].status == "complete"
     assert [item.variant.id for item in state["result"].variants] == ["search-1"]
+
+
+def test_writer_receives_the_examples_the_retriever_found(brief: Brief) -> None:
+    example = Example(
+        brand_id="voltride",
+        channel="search",
+        headline="Ride the commute",
+        body="Sit upright.",
+        cta="See it",
+    )
+    retrieve = FakeRetrieve([example])
+    write = FakeWrite()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        retrieve=retrieve,
+        write=write,
+        critique=FakeCritique(),
+    )
+
+    assert retrieve.calls[0]["plan"] == state["plan"]
+    assert write.calls[0]["examples"] == [example]
+    assert state["examples"] == [example]
+
+
+def test_an_empty_retrieval_does_not_stop_the_run(brief: Brief) -> None:
+    write = FakeWrite()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        retrieve=FakeRetrieve(),
+        write=write,
+        critique=FakeCritique(),
+    )
+
+    assert write.calls[0]["examples"] == []
+    assert state["examples"] == []
+    assert state["errors"] == []
+    assert state["status"] == "complete"
+
+
+def test_a_retriever_failure_ends_the_run_failed_and_keeps_the_plan(brief: Brief) -> None:
+    write = FakeWrite()
+
+    state = run_graph(
+        brief,
+        load_brand("voltride"),
+        plan=FakePlan(),
+        retrieve=FakeRetrieve(error=RuntimeError("chroma down")),
+        write=write,
+        critique=FakeCritique(),
+    )
+
+    assert write.calls == []
+    assert state["status"] == "failed"
+    assert state["plan"] is not None
+    assert state["variants"] == []
+    assert [(error.node, error.fatal) for error in state["errors"]] == [("retriever", True)]
+    assert "chroma down" in state["errors"][0].message
 
 
 def test_writer_receives_the_plan_the_planner_wrote(brief: Brief) -> None:
@@ -486,6 +571,7 @@ def _structured_output_error(usage: Usage) -> StructuredOutputError:
 
 
 def test_a_planner_failure_ends_the_run_failed_without_calling_later_nodes(brief: Brief) -> None:
+    retrieve = FakeRetrieve()
     write = FakeWrite()
     critique = FakeCritique()
 
@@ -493,10 +579,12 @@ def test_a_planner_failure_ends_the_run_failed_without_calling_later_nodes(brief
         brief,
         load_brand("voltride"),
         plan=FakePlan(GatewayError("no plan")),
+        retrieve=retrieve,
         write=write,
         critique=critique,
     )
 
+    assert retrieve.calls == []
     assert write.calls == []
     assert critique.calls == []
     assert state["status"] == "failed"
