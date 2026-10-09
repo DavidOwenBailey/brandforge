@@ -253,7 +253,7 @@ brandforge/
 │   │   ├── schema.py         # portable-schema check  
 │   │   ├── registry.py       # lazy provider → adapter lookup  
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
-│   ├── retrieval/            # Chroma index build + query  
+│   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  

@@ -1,0 +1,64 @@
+# Approved Brightleaf ads (BF-29). Fictional. Loaded by retrieval/corpus.py.
+# brand_id must match this filename.
+brand_id: brightleaf
+examples:
+  - channel: search
+    headline: "Spring Blossom is back"
+    body: "A soft green tea with a light floral scent. Made for slow mornings."
+    cta: "See this season's blend"
+  - channel: search
+    headline: "Six teas, one small box"
+    body: "New to loose leaf? Six everyday teas, with a short note on how to brew each one."
+    cta: "Look inside the box"
+  - channel: search
+    headline: "A new tea each month"
+    body: "Two pouches arrive monthly. Keep the ones you love and tell us what to repeat."
+    cta: "See how it works"
+  - channel: search
+    headline: "A quiet cup after dinner"
+    body: "Chamomile with a light honey scent. Nothing fancy. A calm last cup."
+    cta: "Meet the evening blend"
+  - channel: social
+    headline: "The first cup smells like spring"
+    body: "Spring Blossom is a light green tea. The steam carries a soft blossom scent, and the sip is gentle. It is our spring green."
+    cta: "Take a look"
+  - channel: social
+    headline: "Loose leaf, without the fuss"
+    body: "Six teas. A few plain words on water and time. No lecture. A friendly place to start, from one neighbour to another."
+    cta: "Open the starter box"
+  - channel: social
+    headline: "Two pouches, once a month"
+    body: "One tea for the morning and one for the evening, chosen for the month ahead. Drink them at your own pace. Tell us which pouch to send again."
+    cta: "Start a monthly tin"
+  - channel: social
+    headline: "A tin for someone who likes tea"
+    body: "Four small pouches and a blank card. The teas are the ones we drink at home. You write the note. We pack the tin."
+    cta: "See the gift tin"
+  - channel: display
+    headline: "Soft green. Light blossom."
+    body: "Spring Blossom, for unhurried mornings."
+    cta: "Taste the season"
+  - channel: display
+    headline: "Six teas to start with"
+    body: "A small box for anyone new to loose leaf."
+    cta: "Browse the box"
+  - channel: display
+    headline: "Tea for the kitchen counter"
+    body: "A simple black tea for the everyday kettle."
+    cta: "Meet Everyday Black"
+  - channel: display
+    headline: "This month's two teas"
+    body: "A morning cup and an evening cup, at your door."
+    cta: "See the month"
+  - channel: email
+    headline: "Spring Blossom is steeping"
+    body: "The kettle clicks. The leaves open. A light floral scent fills the kitchen. Spring Blossom is our seasonal green, back for these mornings."
+    cta: "Read about the blend"
+  - channel: email
+    headline: "A first box of loose leaf"
+    body: "If tea bags are all you have tried, start here. Six teas, plain brewing notes, and no lecture. Brew one tonight and see what you think."
+    cta: "Peek inside the box"
+  - channel: email
+    headline: "Your next two pouches"
+    body: "Next month brings a strong morning black and a chamomile for late evenings. Drink them whenever you like. Reply if you would rather have a different pair."
+    cta: "Keep my monthly teas"
