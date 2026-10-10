@@ -117,3 +117,34 @@ def test_bad_log_level_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRANDFORGE_LOG_LEVEL", "verbose")
     with pytest.raises(ValueError):
         IsolatedSettings()
+
+
+def test_api_bind_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BRANDFORGE_API_HOST", raising=False)
+    monkeypatch.delenv("BRANDFORGE_API_PORT", raising=False)
+    settings = IsolatedSettings()
+    assert settings.api_host == "127.0.0.1"
+    assert settings.api_port == 8000
+
+
+def test_api_bind_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_API_HOST", "0.0.0.0")
+    monkeypatch.setenv("BRANDFORGE_API_PORT", "9000")
+    settings = IsolatedSettings()
+    assert settings.api_host == "0.0.0.0"
+    assert settings.api_port == 9000
+
+
+@pytest.mark.parametrize("bad", ["0", "65536"])
+def test_api_port_rejects_values_outside_1_to_65535(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_API_PORT", bad)
+    with pytest.raises(ValueError):
+        IsolatedSettings()
+
+
+def test_api_host_rejects_blank(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_API_HOST", "")
+    with pytest.raises(ValueError):
+        IsolatedSettings()

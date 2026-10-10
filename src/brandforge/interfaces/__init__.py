@@ -1,1 +1,4 @@
-"""CLI, API and demo interfaces (BF-10, M7)."""
+"""CLI and HTTP interfaces.
+
+The Typer CLI is BF-10. ``POST /generate`` is BF-39. The Streamlit page comes later.
+"""
