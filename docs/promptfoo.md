@@ -2,7 +2,7 @@
 
 Promptfoo runs the fixed eval set through two systems and puts their results side by side: the single-prompt baseline, and the full pipeline. The question the suite answers is whether the pipeline writes more on-brand copy than one prompt, and at what cost (ADR 0027).
 
-Milestone M6 has the dataset (BF-33), the providers (BF-34), the deterministic assertions (BF-35), and the judge rubric (BF-36). Calibration and the CI smoke test are still ahead. A run returns copy, tokens, cost, and latency. It scores that copy against the hard checks, and the judge scores each variant from 1 to 5 on that brand's anchors.
+Milestone M6 has the dataset (BF-33), the providers (BF-34), the deterministic assertions (BF-35), the judge rubric (BF-36), and judge calibration (BF-37). The CI smoke test is still ahead. A run returns copy, tokens, cost, and latency. It scores that copy against the hard checks, and the judge scores each variant from 1 to 5 on that brand's anchors.
 
 ## What you can do now
 
@@ -10,10 +10,10 @@ These commands are safe to run. They load the case files and the providers. They
 
 ```bash
 npx promptfoo@latest validate config --config evals/promptfooconfig.yaml
-uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/test_assertions.py tests/test_judge.py
+uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/test_assertions.py tests/test_judge.py tests/test_calibration.py
 ```
 
-`validate config` checks the yaml and the test list. The pytest files check the 30 cases, the provider wiring, the deterministic checks, and the judge grader. The model calls are mocked.
+`validate config` checks the yaml and the test list. The pytest files check the 30 cases, the provider wiring, the deterministic checks, the judge grader, and the calibration arithmetic. The model calls are mocked.
 
 A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, latency, the deterministic checks, and the judge's 1–5 mean. With tracing on, a pipeline row includes a Langfuse trace id. The deterministic checks do not call a model. The judge rubric does: one gateway call per variant, on the judge tier.
 
@@ -21,7 +21,6 @@ A real comparison is also available. It calls the model, so start with one case.
 
 | Task | What it will add | What you have instead |
 | --- | --- | --- |
-| BF-37 Judge calibration | Your scores for 15 outputs in `evals/calibration/`, and an agreement script | That directory is not in the repo yet. |
 | BF-38 Results and CI smoke | A committed summary in `evals/results/`, and a 5-case smoke eval on every push | CI runs Ruff, mypy, and pytest. The full eval is manual. |
 
 The deterministic checks are valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase. They must all pass. They do not grade brand voice. The judge rubric does that, and [its section](#the-judge-rubric) says how a finished grade is recorded. An error row (a missing key, a gateway failure) has no output, so it fails the eval. Promptfoo then exits with code 100.
@@ -197,6 +196,24 @@ The judge's tokens and cost are on the grader result. They are not added to the 
 
 Cross-check is off unless `BRANDFORGE_JUDGE_CROSSCHECK_MODEL` is a `provider:model` string and both of its prices are above 0. Then `generate_tests` adds a second `llm-rubric` with metric `judge_crosscheck`. That call still goes through the gateway as the judge tier, with the cross-check model and prices copied onto the tier for that call. The Opus cache-read override is not copied. Leave the model blank to score with the judge tier only. The three pipeline tiers are unchanged.
 
+## Judge calibration
+
+`brandforge calibrate` compares the hand scores in `evals/calibration/` with the judge (ADR 0030). The sample is 15 authored outputs, the first five briefs of each brand. Each file is one variant and a score for voice, clarity and the call to action. The note in the file is the reason for that score. The judge does not see the note or the scores.
+
+The command calls the judge once per output, on the judge tier, with `prompts/judge_v1.md`. It uses the same grader as the `llm-rubric`. It does not run the baseline or the pipeline, and it does not need promptfoo. It does need the API key for the judge tier, from `.env`, the same way [Before you run a model](#before-you-run-a-model) sets that key up.
+
+```bash
+uv run brandforge calibrate
+```
+
+The report is quadratic weighted kappa on the 1–5 criterion scores, exact agreement, agreement within one point, and the mean absolute error. It also gives those figures per criterion and per brand, and lists every score that differs by two points or more. Kappa below 0.60 is low agreement: tune the rubric anchors before treating the judge mean as your score. The command still exits 0. That figure is the result. Exit status 1 means the files did not load, or the judge scored nothing.
+
+pytest checks the 15 files and the arithmetic with a faked judge. CI does not run the command.
+
+```bash
+uv run pytest tests/test_calibration.py
+```
+
 ## Before you run a model
 
 From the repository root:
@@ -369,10 +386,14 @@ uv run python -c "import json; from brandforge.evals import call_baseline; print
 | `src/brandforge/evals/cases.py` | Case loader |
 | `src/brandforge/evals/assertions.py` | The deterministic checks (ADR 0028) |
 | `src/brandforge/evals/judge.py` | The judge grader (ADR 0029) |
+| `src/brandforge/evals/calibration.py` | The hand-score loader, the kappa, and the report (ADR 0030) |
 | `src/brandforge/prompts/judge_v1.md` | The versioned judge prompt. One variant, scores only |
+| `evals/calibration/*.yaml` | 15 hand-scored outputs, five briefs from each brand |
 | `tests/test_promptfoo_providers.py` | Provider tests with the model mocked |
 | `tests/test_assertions.py` | Deterministic checks, with no model call |
 | `tests/test_judge.py` | Judge grader tests. The gateway is faked |
+| `tests/test_calibration.py` | The sample and the agreement arithmetic. The judge is faked |
 | `docs/adr/0027_promptfoo_providers.md` | Why the prompt is a case id and why both systems share one row |
 | `docs/adr/0028_deterministic_assertions.md` | What the deterministic checks measure, and what they leave to the judge |
 | `docs/adr/0029_judge_rubric.md` | How the 1–5 mean is scored, and how the optional cross-check borrows the judge tier |
+| `docs/adr/0030_judge_calibration.md` | Why the agreement figure is quadratic weighted kappa, and why 0.60 is the low line |

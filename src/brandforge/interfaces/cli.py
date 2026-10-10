@@ -1,10 +1,12 @@
-"""Typer CLI: `brandforge generate`, `brandforge index` and `brandforge inspect <run_id>`.
+"""Typer CLI: `brandforge generate`, `brandforge index`, `brandforge inspect <run_id>`
+and `brandforge calibrate`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
 variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
 run ID and the Langfuse trace ID (BF-25). The state is checkpointed after every node (BF-24),
 and `inspect` reads it back by run ID. `index` embeds the approved examples into one persistent
-Chroma collection per brand (BF-30).
+Chroma collection per brand (BF-30). `calibrate` compares the hand scores in `evals/calibration/`
+with the judge (BF-37).
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -24,6 +26,7 @@ from brandforge import __version__
 from brandforge.brands import BrandLoadError, load_brand
 from brandforge.checkpointing import RunStep, load_run_steps, open_checkpointer
 from brandforge.config import get_settings
+from brandforge.evals.calibration import CalibrationError, format_report, run_calibration
 from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
 from brandforge.logging import configure_logging
@@ -348,3 +351,20 @@ def inspect_run(
         available = ", ".join(str(item.step) for item in steps)
         _fail(f"run {run_id!r} has no step {step} (steps: {available})")
     typer.echo(format_step_state(match))
+
+
+@app.command("calibrate")
+def calibrate_judge() -> None:
+    """Compare hand scores in evals/calibration/ with the judge.
+
+    Calls the judge once per authored output and prints quadratic weighted kappa.
+    Kappa below 0.60 still exits 0: it is a finding about the rubric. Status 1 means
+    the sample cannot be read, or the judge scored nothing.
+    """
+    try:
+        report = run_calibration()
+    except CalibrationError as exc:
+        _fail(str(exc))
+    typer.echo(format_report(report))
+    if report.scored == 0:
+        raise typer.Exit(code=1)

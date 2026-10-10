@@ -1,0 +1,11 @@
+id: ledgerly_03_month_end_close
+case_id: ledgerly_03_month_end_close
+channel: display
+headline: "Month-end, in order"
+body: "A checklist for the close. Tick off the steps your firm runs each month."
+cta: "View the checklist"
+scores:
+  voice: 3
+  clarity: 4
+  call_to_action: 4
+note: "Voice 3: professional and calm, and it could be any close tool. Clarity 4: the checklist is clear, with a little softness in the steps. Call to action 4: it names the checklist and fits awareness."

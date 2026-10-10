@@ -1,0 +1,11 @@
+id: voltride_05_lock_and_lights
+case_id: voltride_05_lock_and_lights
+channel: display
+headline: "Kit for the week"
+body: "Power up your ride with accessories and more, sort of the usual bits."
+cta: "Click here"
+scores:
+  voice: 2
+  clarity: 2
+  call_to_action: 2
+note: "Voice 2: generic sales copy. Power up is the energetic word, and there is no safety or range claim. Clarity 2: the lock and lights are never named. Call to action 2: Click here."

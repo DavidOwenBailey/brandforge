@@ -1,0 +1,11 @@
+id: voltride_01_commuter_ebike
+case_id: voltride_01_commuter_ebike
+channel: search
+headline: "Take the hill on the way in"
+body: "The commuter e-bike pulls away from the lights and climbs the last street of your ride. You still pedal. The motor meets you there."
+cta: "Book a ride this week"
+scores:
+  voice: 5
+  clarity: 5
+  call_to_action: 5
+note: "Voice 5: short, active, and a concrete commute, with no range figure and no discount. Clarity 5: the ride is the message. Call to action 5: a specific invitation that fits conversion."

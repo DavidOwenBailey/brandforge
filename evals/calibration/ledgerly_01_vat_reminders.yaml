@@ -1,0 +1,11 @@
+id: ledgerly_01_vat_reminders
+case_id: ledgerly_01_vat_reminders
+channel: email
+headline: "VAT dates, written down for you"
+body: "Ledgerly lists the VAT deadlines for your return period, so you can see the date before it arrives. It does not tell you what to file."
+cta: "See how reminders work"
+scores:
+  voice: 5
+  clarity: 5
+  call_to_action: 5
+note: "Voice 5: calm and exact about VAT dates, and it refuses to give tax advice. Clarity 5: the reminder is the whole message. Call to action 5: a low-pressure look at how it works, which fits consideration."

@@ -1,0 +1,11 @@
+id: brightleaf_04_hearth_black
+case_id: brightleaf_04_hearth_black
+channel: display
+headline: "A plain morning cup"
+body: "Hearth is an everyday breakfast black tea. It tastes like toast and a warm kitchen. One malted note, nothing fancy."
+cta: "See Hearth black tea"
+scores:
+  voice: 4
+  clarity: 4
+  call_to_action: 4
+note: "Voice 4: warm and concrete, with one jargon slip in malted note. Clarity 4: the cup is immediate and the last sentence is padding. Call to action 4: specific for awareness, a little flat."
