@@ -3,7 +3,8 @@
 promptfoo is the runner. It does not write the model prompt: each test carries a
 case id, and the provider loads that case and calls the system that already owns
 the versioned prompt. Both systems return one JSON row so the deterministic
-assertions can score them side by side. See ADR 0027 and ADR 0028.
+assertions and the judge rubric can score them side by side. See ADR 0027,
+ADR 0028 and ADR 0029.
 """
 
 from collections.abc import Mapping
@@ -11,6 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from brandforge.brands import load_brand
 from brandforge.evals.cases import EvalCase, load_case, load_cases
 from brandforge.models import (
     BrandProfile,
@@ -95,6 +97,8 @@ def generate_tests(config: Mapping[str, Any] | None = None) -> list[dict[str, An
 
     ``config["case_ids"]``, when set, keeps only those ids and keeps the order
     given. The committed config omits it, so ``promptfoo eval`` runs the full set.
+    Each test carries the judge rubric for its brand. The deterministic checks stay
+    on ``defaultTest`` and promptfoo adds them to these assertions.
     """
     loaded = load_cases()
     by_id = {case.id: case for case in loaded}
@@ -107,7 +111,18 @@ def generate_tests(config: Mapping[str, Any] | None = None) -> list[dict[str, An
             known = ", ".join(sorted(by_id))
             raise ValueError(f"Unknown case(s): {', '.join(missing)}. Known cases: {known}")
         ordered = [by_id[case_id] for case_id in selected]
-    return [_test(case) for case in ordered]
+    # judge imports this module for EvalOutput, so this import stays inside the function.
+    from brandforge.evals.judge import judge_assertions
+
+    brands: dict[str, BrandProfile] = {}
+    tests: list[dict[str, Any]] = []
+    for case in ordered:
+        brand = brands.get(case.brand_id)
+        if brand is None:
+            brand = load_brand(case.brand_id)
+            brands[case.brand_id] = brand
+        tests.append(_test(case, judge_assertions(brand)))
+    return tests
 
 
 def call_baseline(
@@ -164,11 +179,14 @@ def call_pipeline(
         return _fail(exc)
 
 
-def _test(case: EvalCase) -> dict[str, Any]:
+def _test(case: EvalCase, assertions: list[dict[str, Any]]) -> dict[str, Any]:
+    # The judge rubric is per case because the anchors live on that brand.
+    # defaultTest still supplies the deterministic checks; promptfoo runs both.
     return {
         "description": case.id,
         "vars": {"case_id": case.id},
         "metadata": {"brand_id": case.brand_id},
+        "assert": assertions,
     }
 
 

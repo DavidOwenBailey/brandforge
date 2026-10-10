@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, NamedTuple
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, SecretStr
+from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -218,6 +218,14 @@ class Settings(BaseSettings):
     critic_prompt_version: str = "v2"  # prompts/critic_<version>.md
     reviser_prompt_version: str = "v2"  # prompts/reviser_<version>.md
     repair_prompt_version: str = "v1"  # prompts/repair_<version>.md (gateway schema repair)
+    judge_prompt_version: str = "v1"  # prompts/judge_<version>.md
+    # Optional second judge (BF-36, ADR 0029). Blank leaves scoring on the judge tier
+    # alone. A provider:model value cross-checks the same rubric; its prices replace
+    # the judge tier's for that call, so an Opus rate is not applied to a Gemini model.
+    judge_crosscheck_model: str = ""
+    judge_crosscheck_input_per_mtok: float = Field(default=0.0, ge=0)
+    judge_crosscheck_output_per_mtok: float = Field(default=0.0, ge=0)
+    judge_crosscheck_cache_read_multiplier: float | None = Field(default=None, ge=0)
 
     # Paths
     brands_dir: Path = Path("src/brandforge/brands")
@@ -225,6 +233,24 @@ class Settings(BaseSettings):
     # Persistent Chroma directory for `brandforge index` (BF-30, ADR 0023). One collection
     # per brand. Git-ignored with the rest of `.brandforge/`.
     chroma_dir: Path = Path(".brandforge/chroma")
+
+    @model_validator(mode="after")
+    def _price_the_crosscheck(self) -> "Settings":
+        text = self.judge_crosscheck_model.strip()
+        if not text:
+            return self
+        parse_model_ref(text)
+        if self.judge_crosscheck_input_per_mtok <= 0 or self.judge_crosscheck_output_per_mtok <= 0:
+            raise ValueError("A judge cross-check model needs input and output prices above 0.")
+        return self
+
+    @property
+    def judge_crosscheck(self) -> ModelRef | None:
+        """The optional second judge, or None when the eval uses the judge tier only."""
+        text = self.judge_crosscheck_model.strip()
+        if not text:
+            return None
+        return parse_model_ref(text)
 
     @property
     def langfuse_configured(self) -> bool:

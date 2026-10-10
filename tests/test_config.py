@@ -20,6 +20,8 @@ def test_defaults_match_architecture() -> None:
     assert s.thresholds.min_per_criterion == 3
     assert s.models.fast == "anthropic:claude-haiku-4-5-20251001"
     assert s.planner_prompt_version == "v2"
+    assert s.judge_prompt_version == "v1"
+    assert s.judge_crosscheck is None
     assert s.pricing.anthropic_cache.write_multiplier == 1.25
     assert s.pricing.anthropic_cache.read_multiplier == 0.1
     assert s.pricing.gemini_cache.read_multiplier == 0.1
@@ -47,6 +49,23 @@ def test_resolve_default_tiers() -> None:
 def test_malformed_model_ref_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_model_ref(bad)
+
+
+def test_blank_crosscheck_is_off() -> None:
+    assert IsolatedSettings(judge_crosscheck_model="  ").judge_crosscheck is None
+
+
+def test_crosscheck_requires_a_model_ref_and_prices() -> None:
+    with pytest.raises(ValueError):
+        IsolatedSettings(judge_crosscheck_model="gemini-only")
+    with pytest.raises(ValueError, match="prices above 0"):
+        IsolatedSettings(judge_crosscheck_model="gemini:gemini-test")
+    configured = IsolatedSettings(
+        judge_crosscheck_model=" gemini:gemini-test ",
+        judge_crosscheck_input_per_mtok=0.5,
+        judge_crosscheck_output_per_mtok=3.0,
+    )
+    assert configured.judge_crosscheck == ModelRef("gemini", "gemini-test")
 
 
 def test_retrieval_enabled_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:

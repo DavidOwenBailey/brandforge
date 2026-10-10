@@ -46,13 +46,26 @@ def _parse(response: Mapping[str, Any]) -> EvalOutput:
     return EvalOutput.model_validate_json(output)
 
 
-def test_generate_tests_lists_every_case_without_assertions() -> None:
+def test_generate_tests_lists_every_case_and_the_judge_rubric() -> None:
+    from brandforge.config import get_settings
+
     tests = generate_tests()
     assert [test["description"] for test in tests] == list_case_ids()
     assert all(test["vars"] == {"case_id": test["description"]} for test in tests)
-    assert all("assert" not in test for test in tests)
     blossom = next(test for test in tests if test["description"] == CASE_ID)
     assert blossom["metadata"] == {"brand_id": "brightleaf"}
+    judge = blossom["assert"][0]
+    assert judge["type"] == "llm-rubric"
+    assert judge["metric"] == "judge"
+    assert "Brightleaf" in judge["value"]
+    assert "\n  5:" in judge["value"]
+    ledger = next(test for test in tests if test["description"] == "ledgerly_01_vat_reminders")
+    assert "Ledgerly" in ledger["assert"][0]["value"]
+    metrics = [item["metric"] for item in blossom["assert"]]
+    if get_settings().judge_crosscheck is None:
+        assert metrics == ["judge"]
+    else:
+        assert metrics == ["judge", "judge_crosscheck"]
 
 
 def test_generate_tests_keeps_a_requested_subset_in_the_given_order() -> None:

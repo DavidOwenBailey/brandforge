@@ -1,8 +1,8 @@
-"""Eval dataset (BF-33), promptfoo providers (BF-34), and deterministic checks (BF-35).
+"""Eval dataset (BF-33), promptfoo providers (BF-34), checks (BF-35) and judge (BF-36).
 
 The YAML cases live in the repo's ``evals/cases/`` directory. promptfoo loads
-one test per case, runs that case through the baseline and the pipeline, and
-scores the row without another model call.
+one test per case, runs that case through the baseline and the pipeline, scores
+the row with deterministic checks, then grades each variant on the judge rubric.
 """
 
 from brandforge.evals.assertions import (
@@ -26,6 +26,14 @@ from brandforge.evals.cases import (
     load_case,
     load_cases,
 )
+from brandforge.evals.judge import (
+    JudgeGrade,
+    JudgeReply,
+    anchored_rubric,
+    call_judge,
+    judge_assertions,
+    score_row,
+)
 from brandforge.evals.promptfoo import (
     EvalOutput,
     EvalUsage,
@@ -43,12 +51,16 @@ __all__ = [
     "EvalUsage",
     "EvalVariant",
     "HardConstraints",
+    "JudgeGrade",
+    "JudgeReply",
+    "anchored_rubric",
     "assert_banned_words",
     "assert_channel_limits",
     "assert_cta",
     "assert_json",
     "assert_must_mention",
     "call_baseline",
+    "call_judge",
     "call_pipeline",
     "check_banned_words",
     "check_channel_limits",
@@ -56,7 +68,9 @@ __all__ = [
     "check_json",
     "check_must_mention",
     "generate_tests",
+    "judge_assertions",
     "list_case_ids",
     "load_case",
     "load_cases",
+    "score_row",
 ]

@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
-# Baseline vs pipeline (BF-34) and the deterministic assertions (BF-35).
-# The judge rubric comes later.
+# Baseline vs pipeline (BF-34), deterministic assertions (BF-35), and the
+# judge rubric (BF-36). generate_tests adds the llm-rubric for each brand.
+# These default checks stay here. promptfoo runs both. See ADR 0029.
 #
 # From the repo root, with the project environment available:
 #   npx promptfoo@latest eval --config evals/promptfooconfig.yaml

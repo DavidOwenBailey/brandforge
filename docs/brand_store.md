@@ -43,7 +43,7 @@ The CLI, API and eval harness load the brand once at the start of a run and put 
 | Writer / Reviser | `voice`, `do`, `dont`, `banned_words` to steer the copy |
 | Brand critic | `rubric` to score each variant 1 to 5 per criterion |
 | Assembler | `brand.version` and `rubric.version`, recorded in the result |
-| Evals | `banned_words` for deterministic assertions; `rubric` anchors for the judge prompt |
+| Evals | `banned_words` for deterministic assertions; `rubric` anchors for the judge prompt (`prompts/judge_v1.md`) |
 
 Because every consumer reads the same profile, changing a brand changes the writer, critic and evals together, so they can't drift apart.
 

@@ -182,7 +182,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 1. **Baseline:** one prompt with the brief and brand profile, same model as the writer.  
 2. **Pipeline:** the full graph.
 
-**Runner:** promptfoo. `evals/promptfooconfig.yaml` lists both systems as Python providers and one test per case from `load_cases`. `promptfoo eval` runs every case through both. The promptfoo prompt is the case id. Each provider loads that case and calls the baseline or the graph, which still use the versioned prompt files. Both return one JSON row: variants, status, tokens and cost. The baseline has no critic, so `flagged` is null on its rows. A provider that cannot produce a row returns an error and the rest of the run continues (ADR 0027). Deterministic assertions then score that row, in promptfoo and in pytest, with no further model call: valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase (ADR 0028). The judge rubric is added on top of the same row. How the pieces connect, and how to run a case, is in [promptfoo.md](promptfoo.md).
+**Runner:** promptfoo. `evals/promptfooconfig.yaml` lists both systems as Python providers and one test per case from `load_cases`. `promptfoo eval` runs every case through both. The promptfoo prompt is the case id. Each provider loads that case and calls the baseline or the graph, which still use the versioned prompt files. Both return one JSON row: variants, status, tokens and cost. The baseline has no critic, so `flagged` is null on its rows. A provider that cannot produce a row returns an error and the rest of the run continues (ADR 0027). Deterministic assertions then score that row, in promptfoo and in pytest, with no further model call: valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase (ADR 0028). The judge rubric scores the same row: one `llm-rubric` grades each variant on its own, through the gateway, on the judge tier, using that brand's 1–5 anchors. The row score is the mean. A second Gemini model can cross-check the same rubric when it is configured (ADR 0029). How the pieces connect, and how to run a case, is in [promptfoo.md](promptfoo.md).
 
 **Three layers of checks**
 
@@ -258,12 +258,12 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
-│   ├── evals/                # cases (BF-33); promptfoo providers (BF-34); assertions (BF-35)  
+│   ├── evals/                # cases (BF-33); promptfoo providers (BF-34); assertions (BF-35); judge (BF-36)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
-│   ├── providers/            # promptfoo providers (BF-34) and assertions (BF-35)  
-│   ├── promptfooconfig.yaml  # both providers, the cases, and the deterministic checks (BF-34, BF-35)  
+│   ├── providers/            # promptfoo providers (BF-34), assertions (BF-35), judge grader (BF-36)  
+│   ├── promptfooconfig.yaml  # both providers, the cases, deterministic checks, judge rubric (BF-34–BF-36)  
 │   ├── calibration/          # your hand scores  
 │   └── results/              # committed run summaries  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  
