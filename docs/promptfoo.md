@@ -61,7 +61,7 @@ The committed summary is the manual 30-case run. A five-case export is a smoke s
 npx promptfoo@latest eval --env-file .env --config evals/promptfooconfig.smoke.yaml
 ```
 
-GitHub Actions runs that file on the default Anthropic tiers. The job needs an `ANTHROPIC_API_KEY` repository secret. It does not build the example index, and it does not compare scores with `evals/results/full.md`. Fork pull requests skip the job. The timeout is 45 minutes. The raw export is uploaded as an artifact named `eval-smoke`.
+The GitHub Actions job for that file is paused (`if: false` on the smoke job) until the repository has an `ANTHROPIC_API_KEY` secret. An empty secret failed the job. When the job is turned back on, it uses the default Anthropic tiers, does not build the example index, and does not compare scores with `evals/results/full.md`. Fork pull requests skip it. The timeout is 45 minutes. The raw export is uploaded as an artifact named `eval-smoke`.
 
 ## How a run is wired
 

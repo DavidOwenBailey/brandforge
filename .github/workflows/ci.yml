@@ -33,17 +33,19 @@ jobs:
       - name: Test (pytest)
         run: uv run poe test
 
-  # Real model calls, on five cases. The default tiers are Anthropic, so the
-  # job needs ANTHROPIC_API_KEY. Fork pull requests do not receive secrets.
+  # Real model calls, on five cases. Paused until the repository has
+  # ANTHROPIC_API_KEY: an empty secret failed the job. The smoke config stays
+  # in evals/promptfooconfig.smoke.yaml (ADR 0031). To turn the job on, replace
+  # `if: false` with the fork check:
+  #   github.event_name != 'pull_request' ||
+  #   github.event.pull_request.head.repo.full_name == github.repository
   # A low judge score does not fail the job. A provider error, a failed hard
-  # check, or a judge that cannot grade does. See ADR 0031.
+  # check, or a judge that cannot grade does.
   smoke:
     name: Eval smoke (5 cases)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: false
     steps:
       - uses: actions/checkout@v4
 

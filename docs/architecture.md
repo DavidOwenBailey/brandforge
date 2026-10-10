@@ -203,7 +203,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * Variants are scored individually, not compared side by side, to avoid position bias.  
 * Length limits are enforced deterministically, so the judge isn't rewarding verbosity.
 
-**In CI:** lint, unit tests and a 5-case eval smoke test on every push. The smoke config is `evals/promptfooconfig.smoke.yaml` (ADR 0031). It runs in its own job, on the default Anthropic tiers, and it calls the model. `uv run poe check` stays offline. The job fails when a provider errors, a deterministic check fails, or the judge cannot grade. A low judge score does not fail it. Fork pull requests skip the job, because they do not receive the API key. The full 30-case run is manual. `brandforge eval-summary` turns that promptfoo export into `evals/results/full.md` and `evals/results/full.json`. The calibration command is manual too. CI checks the 15 files and the agreement arithmetic with a faked judge.
+**In CI:** lint and unit tests on every push. The 5-case smoke config is `evals/promptfooconfig.smoke.yaml` (ADR 0031). Its GitHub Actions job is paused until the repository has an `ANTHROPIC_API_KEY` secret. When that job is on, it uses the default Anthropic tiers and calls the model. `uv run poe check` stays offline. The job fails when a provider errors, a deterministic check fails, or the judge cannot grade. A low judge score does not fail it. Fork pull requests skip the job, because they do not receive the API key. The full 30-case run is manual. `brandforge eval-summary` turns that promptfoo export into `evals/results/full.md` and `evals/results/full.json`. The calibration command is manual too. CI checks the 15 files and the agreement arithmetic with a faked judge.
 
 ## **Observability, cost and security**
 
@@ -270,7 +270,7 @@ brandforge/
 │   ├── calibration/          # 15 hand-scored outputs; brandforge calibrate (BF-37)  
 │   └── results/              # full.md and full.json from the manual run (BF-38)  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  
-└── .github/workflows/ci.yml  # lint, type-check, tests, 5-case eval smoke test
+└── .github/workflows/ci.yml  # lint, type-check, tests; 5-case smoke job paused
 ```
 ## **Decisions and open questions**
 

@@ -9,8 +9,9 @@ The eval suite can already run all 30 cases through the baseline and the
 pipeline, score the hard checks, and grade each variant (0026–0029). The
 architecture asks for two further things. The full run is manual, and its
 summary is committed under `evals/results/`, so a reader can see the comparison
-without paying for another run. CI runs a 5-case smoke eval on every push.
-That smoke eval is the one place CI calls a model. Calibration stays a manual
+without paying for another run. CI is set up to run a 5-case smoke eval
+on every push. That job is paused until the repository has an Anthropic
+key, so today CI does not call a model. Calibration stays a manual
 command (0030).
 
 A promptfoo export is the wrong file to commit. It carries every variant, and
@@ -113,3 +114,7 @@ run can use different models, and the smoke run has no example index.
 - **Until the manual run:** `evals/results/` can be empty. `uv run poe check`
   does not create the summary and does not call a model. The results test
   checks `full.json` and `full.md` once those files are committed.
+- **Paused:** the smoke job is `if: false` until the repository has
+  `ANTHROPIC_API_KEY`. An empty secret failed the job. The config and the
+  missing-key failure stay in the workflow. Remove `if: false` and restore
+  the fork check to turn the job on.
