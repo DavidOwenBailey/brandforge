@@ -196,6 +196,10 @@ class Settings(BaseSettings):
     # The level is read case-insensitively. See `brandforge.logging`.
     log_level: LogLevel = "INFO"
     log_format: LogFormat = "json"
+    # HTTP API (BF-39, ADR 0032). Loopback by default: the route has no auth.
+    # `brandforge serve` binds here. Set the host only when you mean to expose the port.
+    api_host: str = Field(default="127.0.0.1", min_length=1)
+    api_port: int = Field(default=8000, ge=1, le=65535)
     models: ModelTiers = ModelTiers()
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()

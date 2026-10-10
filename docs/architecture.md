@@ -211,7 +211,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 
 * One Langfuse trace per run, with a span per graph node; each span records model, prompt version, input, output, tokens, latency and errors.  
 * The default backend is Langfuse Cloud's free tier (`LANGFUSE_HOST=https://cloud.langfuse.com`). A self-hosted stack is optional and off unless you start it: `deploy/langfuse/docker-compose.yml` (ADR 0022). The SDK configuration is the same either way.  
-* The trace ID is returned in the result and printed by the CLI, so any output links straight to how it was produced.  
+* The trace ID is returned in the result, printed by the CLI and sent back by `POST /generate`, so any output links straight to how it was produced.  
 * Structured JSON logs (structlog) carry the same run_id for correlation.  
 * Prompts are versioned files; the prompt version is a span attribute, so eval results tie to exact prompts.
 
@@ -230,7 +230,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * API keys from environment variables via pydantic-settings; .env git-ignored; nothing secret in traces.  
 * Brief text is treated as untrusted input: it's placed in a clearly delimited section of the prompt, and outputs are schema-validated, so injected instructions can't change the output shape.  
 * No real brand or customer data in the repo; all three brands are fictional.  
-* The FastAPI endpoint is local-only for the POC; production would add auth, rate limiting and tenant isolation per brand.
+* `POST /generate` accepts a brand id and a brief and returns the run result, including `trace_id` (null when tracing is off). A finished run is HTTP 200 even when its status is partial or failed; that status is in the body. OpenAPI docs are at `/docs`. `brandforge serve` binds to 127.0.0.1 by default. The endpoint has no auth for the POC; production would add auth, rate limiting and tenant isolation per brand (ADR 0032).
 
 ## **Repository structure**
 ```text
@@ -261,7 +261,7 @@ brandforge/
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
 │   ├── evals/                # cases (BF-33); promptfoo (BF-34); assertions (BF-35); judge (BF-36); calibration (BF-37); results (BF-38)  
-│   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
+│   └── interfaces/           # cli.py (Typer), api.py (FastAPI, BF-39), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
 │   ├── providers/            # promptfoo providers (BF-34), assertions (BF-35), judge grader (BF-36)  

@@ -29,7 +29,8 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 5. The router (plain code) reads the critiques: if every variant passes, it assembles; if some fail, it routes them to the reviser, capped at two passes, and when the cap, the token budget or the wall-clock budget is reached it stops and assembles what exists.  
 6. The reviser rewrites only failing variants using each critique's `fixes`.  
 7. The assembler packages the variants, their critiques, flags, errors and usage into a **RunResult** and sets the final status.  
-8. Every gateway call returns a **Usage**. These are summed into the run's total, which is reported with the result and counts against the token budget. Inside a node the gateway checks the run budget (tokens and time) before every model call and stops the node with `BudgetExceededError` once it is used up (BF-23, ADR 0017).
+8. Every gateway call returns a **Usage**. These are summed into the run's total, which is reported with the result and counts against the token budget. Inside a node the gateway checks the run budget (tokens and time) before every model call and stops the node with `BudgetExceededError` once it is used up (BF-23, ADR 0017).  
+9. The CLI prints the **RunResult**. `POST /generate` returns the same model as JSON, including `trace_id` (BF-39, ADR 0032).
 
 ### **Why this design**
 

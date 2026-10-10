@@ -24,6 +24,8 @@ Each run prints a Run ID, and its state is saved after every node. `uv run brand
 
 Each run also prints a Trace ID. Tracing is optional, and the default backend is Langfuse Cloud's free tier: put the project's `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` in `.env` (`LANGFUSE_HOST` stays `https://cloud.langfuse.com`) and every run becomes one trace, with a span per node and a generation per model call. Without the keys, or with `BRANDFORGE_TRACING_ENABLED=false`, the run is untouched and the CLI says tracing is off. To keep traces on the laptop instead, start the optional stack in `deploy/langfuse/docker-compose.yml` and point `LANGFUSE_HOST` at it. The steps are in [docs/langfuse.md](docs/langfuse.md).
 
+`uv run brandforge serve` starts that same pipeline over HTTP on 127.0.0.1:8000. Send `POST /generate` a JSON `brand` and `brief` (the same fields as a brief file). The response is the run result, including the trace ID. Interactive OpenAPI docs are at <http://127.0.0.1:8000/docs>. The endpoint has no authentication and is for this machine. `BRANDFORGE_API_HOST` and `BRANDFORGE_API_PORT` change the address.
+
 The same run writes structured logs to stderr: one JSON object per line, each carrying that run's ID (and the trace ID, when there is one), so a log line can be tied to the printed Run ID and to the Langfuse trace. `BRANDFORGE_LOG_LEVEL` sets the level (default `INFO`) and `BRANDFORGE_LOG_FORMAT=console` renders the same fields for a person. The tables the CLI prints stay on stdout.
 
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.

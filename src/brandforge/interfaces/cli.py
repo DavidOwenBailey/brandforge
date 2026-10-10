@@ -1,5 +1,5 @@
 """Typer CLI: `brandforge generate`, `brandforge index`, `brandforge inspect <run_id>`,
-`brandforge calibrate` and `brandforge eval-summary`.
+`brandforge calibrate`, `brandforge eval-summary` and `brandforge serve`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
 variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
@@ -7,7 +7,8 @@ run ID and the Langfuse trace ID (BF-25). The state is checkpointed after every 
 and `inspect` reads it back by run ID. `index` embeds the approved examples into one persistent
 Chroma collection per brand (BF-30). `calibrate` compares the hand scores in `evals/calibration/`
 with the judge (BF-37). `eval-summary` reads a promptfoo JSON export and prints the baseline
-against the pipeline (BF-38). It does not call a model.
+against the pipeline (BF-38). It does not call a model. `serve` starts the HTTP API (BF-39):
+`POST /generate` runs this same pipeline and returns the result, including the trace ID.
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -411,3 +412,32 @@ def eval_summary(
         typer.echo(f"Wrote {markdown_path}", err=True)
         typer.echo(f"Wrote {json_path}", err=True)
     typer.echo(format_eval_summary(summary))
+
+
+@app.command()
+def serve(
+    host: Annotated[
+        str | None,
+        typer.Option(
+            "--host",
+            help="Address to bind. Defaults to BRANDFORGE_API_HOST (127.0.0.1).",
+        ),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option(
+            "--port",
+            min=1,
+            max=65535,
+            help="Port to bind. Defaults to BRANDFORGE_API_PORT (8000).",
+        ),
+    ] = None,
+) -> None:
+    """Serve the HTTP API. Interactive OpenAPI docs are at /docs."""
+    settings = get_settings()
+    bind_host = settings.api_host if host is None else host
+    bind_port = settings.api_port if port is None else port
+    # Imported here so `brandforge generate` does not load the server.
+    import uvicorn
+
+    uvicorn.run("brandforge.interfaces.api:app", host=bind_host, port=bind_port)
