@@ -182,13 +182,13 @@ The evaluation answers one question: does the full pipeline produce better on-br
 1. **Baseline:** one prompt with the brief and brand profile, same model as the writer.  
 2. **Pipeline:** the full graph.
 
-**Runner:** promptfoo. `evals/promptfooconfig.yaml` lists both systems as Python providers and one test per case from `load_cases`. `promptfoo eval` runs every case through both. The promptfoo prompt is the case id. Each provider loads that case and calls the baseline or the graph, which still use the versioned prompt files. Both return one JSON row: variants, status, tokens and cost. The baseline has no critic, so `flagged` is null on its rows. A provider that cannot produce a row returns an error and the rest of the run continues (ADR 0027). Deterministic assertions and the judge rubric are added on top of this row. How the pieces connect, and how to run a case, is in [promptfoo.md](promptfoo.md).
+**Runner:** promptfoo. `evals/promptfooconfig.yaml` lists both systems as Python providers and one test per case from `load_cases`. `promptfoo eval` runs every case through both. The promptfoo prompt is the case id. Each provider loads that case and calls the baseline or the graph, which still use the versioned prompt files. Both return one JSON row: variants, status, tokens and cost. The baseline has no critic, so `flagged` is null on its rows. A provider that cannot produce a row returns an error and the rest of the run continues (ADR 0027). Deterministic assertions then score that row, in promptfoo and in pytest, with no further model call: valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase (ADR 0028). The judge rubric is added on top of the same row. How the pieces connect, and how to run a case, is in [promptfoo.md](promptfoo.md).
 
 **Three layers of checks**
 
 | Layer | Tool | What it checks | Pass rule |
 | :---- | :---- | :---- | :---- |
-| Deterministic | promptfoo assertions + pytest | Valid JSON, character limits per channel, banned words absent, required CTA present | 100% must pass |
+| Deterministic | promptfoo assertions + pytest | Valid JSON, the eval-row schema, character limits per channel, requested channels present, banned words absent, a call to action, required phrases | 100% must pass |
 | Model-graded | promptfoo llm-rubric with the judge model | Brand-voice fit, clarity, CTA strength, each scored 1–5 against anchored descriptions | Report mean and distribution |
 | Human calibration | Your own scores on a 15-case sample | Agreement between you and the judge | Report agreement; tune rubric if it's low |
 
@@ -258,12 +258,12 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
-│   ├── evals/                # case loader (BF-33); promptfoo providers (BF-34)  
+│   ├── evals/                # cases (BF-33); promptfoo providers (BF-34); assertions (BF-35)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
-│   ├── providers/            # promptfoo Python providers: baseline and pipeline (BF-34)  
-│   ├── promptfooconfig.yaml  # runs both providers over the cases (BF-34)  
+│   ├── providers/            # promptfoo providers (BF-34) and assertions (BF-35)  
+│   ├── promptfooconfig.yaml  # both providers, the cases, and the deterministic checks (BF-34, BF-35)  
 │   ├── calibration/          # your hand scores  
 │   └── results/              # committed run summaries  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  

@@ -2,8 +2,8 @@
 
 promptfoo is the runner. It does not write the model prompt: each test carries a
 case id, and the provider loads that case and calls the system that already owns
-the versioned prompt. Both systems return one JSON row so a later assertion can
-score them side by side. See ADR 0027.
+the versioned prompt. Both systems return one JSON row so the deterministic
+assertions can score them side by side. See ADR 0027 and ADR 0028.
 """
 
 from collections.abc import Mapping
@@ -189,11 +189,11 @@ def _selected_ids(config: Mapping[str, Any] | None) -> list[str] | None:
 def _load(prompt: object, context: object) -> tuple[EvalCase, BrandProfile]:
     from brandforge.brands import load_brand
 
-    case = load_case(_case_id(prompt, context))
+    case = load_case(case_id_from_context(prompt, context))
     return case, load_brand(case.brand_id)
 
 
-def _case_id(prompt: object, context: object) -> str:
+def case_id_from_context(prompt: object, context: object) -> str:
     """The case to run. Test vars win; the rendered ``{{case_id}}`` prompt is the fallback."""
     raw = _mapping(_mapping(context).get("vars")).get("case_id")
     if isinstance(raw, str) and raw.strip():

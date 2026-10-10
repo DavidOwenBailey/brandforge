@@ -208,7 +208,34 @@ def test_config_runs_both_providers_over_the_case_generator() -> None:
     assert providers[1]["config"]["timeout"] == 600000
     assert raw["commandLineOptions"]["cache"] is False
     assert raw["commandLineOptions"]["maxConcurrency"] == 1
-    assert "assert" not in raw
+    assert raw["defaultTest"]["assert"] == [
+        {"type": "is-json", "metric": "valid_json"},
+        {
+            "type": "python",
+            "value": "file://providers/assertions.py:assert_json",
+            "metric": "eval_row",
+        },
+        {
+            "type": "python",
+            "value": "file://providers/assertions.py:assert_channel_limits",
+            "metric": "channel_limits",
+        },
+        {
+            "type": "python",
+            "value": "file://providers/assertions.py:assert_banned_words",
+            "metric": "banned_words",
+        },
+        {
+            "type": "python",
+            "value": "file://providers/assertions.py:assert_cta",
+            "metric": "cta_present",
+        },
+        {
+            "type": "python",
+            "value": "file://providers/assertions.py:assert_must_mention",
+            "metric": "must_mention",
+        },
+    ]
 
 
 def test_provider_scripts_delegate_to_the_package(monkeypatch: pytest.MonkeyPatch) -> None:
