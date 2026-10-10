@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# Five-case smoke eval (BF-38, ADR 0031). Same providers, checks and judge as
+# evals/promptfooconfig.yaml. CI runs this file. The case list is SMOKE_CASE_IDS
+# in brandforge.evals.results; tests keep the two copies the same.
+#
+# From the repo root:
+#   npx promptfoo@latest eval --config evals/promptfooconfig.smoke.yaml
+description: BrandForge smoke, five cases, baseline vs pipeline
+
+prompts:
+  - "{{case_id}}"
+
+providers:
+  - id: file://providers/baseline.py
+    label: baseline
+  - id: file://providers/pipeline.py
+    label: pipeline
+    config:
+      # One pipeline is several model calls. The worker default is five minutes.
+      timeout: 600000
+
+# Syntax is is-json. The Python checks are the eval row, headline caps, the
+# requested channels, banned words, a call to action, and required phrases.
+# They load the case. They do not call a model (ADR 0028).
+defaultTest:
+  assert:
+    - type: is-json
+      metric: valid_json
+    - type: python
+      value: file://providers/assertions.py:assert_json
+      metric: eval_row
+    - type: python
+      value: file://providers/assertions.py:assert_channel_limits
+      metric: channel_limits
+    - type: python
+      value: file://providers/assertions.py:assert_banned_words
+      metric: banned_words
+    - type: python
+      value: file://providers/assertions.py:assert_cta
+      metric: cta_present
+    - type: python
+      value: file://providers/assertions.py:assert_must_mention
+      metric: must_mention
+
+tests:
+  - path: file://providers/tests.py:generate_tests
+    config:
+      case_ids:
+        - brightleaf_01_spring_blossom
+        - brightleaf_02_starter_box
+        - ledgerly_01_vat_reminders
+        - voltride_01_commuter_ebike
+        - voltride_04_test_ride_weekends
+
+# The model prompts live in prompts/, not in this prompt, so a prompt edit
+# would not change promptfoo's cache key. The cache stays off.
+# One case at a time: each pipeline run already makes several model calls.
+commandLineOptions:
+  cache: false
+  maxConcurrency: 1

@@ -32,3 +32,53 @@ jobs:
 
       - name: Test (pytest)
         run: uv run poe test
+
+  # Real model calls, on five cases. The default tiers are Anthropic, so the
+  # job needs ANTHROPIC_API_KEY. Fork pull requests do not receive secrets.
+  # A low judge score does not fail the job. A provider error, a failed hard
+  # check, or a judge that cannot grade does. See ADR 0031.
+  smoke:
+    name: Eval smoke (5 cases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Eval smoke test
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROMPTFOO_DISABLE_TELEMETRY: "1"
+          PROMPTFOO_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY is not set. The smoke eval uses the default Anthropic tiers."
+            exit 1
+          fi
+          npx --yes promptfoo@latest eval \
+            --config evals/promptfooconfig.smoke.yaml \
+            --output smoke-results.json \
+            --no-share
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke
+          path: smoke-results.json
+          if-no-files-found: ignore

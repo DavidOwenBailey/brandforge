@@ -1,12 +1,13 @@
-"""Typer CLI: `brandforge generate`, `brandforge index`, `brandforge inspect <run_id>`
-and `brandforge calibrate`.
+"""Typer CLI: `brandforge generate`, `brandforge index`, `brandforge inspect <run_id>`,
+`brandforge calibrate` and `brandforge eval-summary`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
 variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
 run ID and the Langfuse trace ID (BF-25). The state is checkpointed after every node (BF-24),
 and `inspect` reads it back by run ID. `index` embeds the approved examples into one persistent
 Chroma collection per brand (BF-30). `calibrate` compares the hand scores in `evals/calibration/`
-with the judge (BF-37).
+with the judge (BF-37). `eval-summary` reads a promptfoo JSON export and prints the baseline
+against the pipeline (BF-38). It does not call a model.
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -27,6 +28,8 @@ from brandforge.brands import BrandLoadError, load_brand
 from brandforge.checkpointing import RunStep, load_run_steps, open_checkpointer
 from brandforge.config import get_settings
 from brandforge.evals.calibration import CalibrationError, format_report, run_calibration
+from brandforge.evals.results import ResultsError, summarize_path, write_summary
+from brandforge.evals.results import format_summary as format_eval_summary
 from brandforge.graph import run_graph
 from brandforge.llm.base import GatewayError
 from brandforge.logging import configure_logging
@@ -368,3 +371,43 @@ def calibrate_judge() -> None:
     typer.echo(format_report(report))
     if report.scored == 0:
         raise typer.Exit(code=1)
+
+
+@app.command("eval-summary")
+def eval_summary(
+    export: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="promptfoo JSON export from --output.",
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="File stem to write. evals/results/full writes full.md and full.json.",
+        ),
+    ] = None,
+) -> None:
+    """Summarize a promptfoo export: the baseline beside the pipeline.
+
+    Prints judge means, pass rate, deterministic checks, cost and latency.
+    With --output, also writes that report as markdown and JSON. Does not call a model.
+    """
+    try:
+        summary = summarize_path(export, settings=get_settings())
+    except ResultsError as exc:
+        _fail(str(exc))
+    if output is not None:
+        if output.is_dir():
+            _fail(f"{output} is a directory. Pass a file stem, such as evals/results/full.")
+        try:
+            markdown_path, json_path = write_summary(summary, output)
+        except OSError as exc:
+            _fail(f"cannot write {output}: {exc}")
+        typer.echo(f"Wrote {markdown_path}", err=True)
+        typer.echo(f"Wrote {json_path}", err=True)
+    typer.echo(format_eval_summary(summary))

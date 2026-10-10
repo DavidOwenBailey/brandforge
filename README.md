@@ -30,7 +30,7 @@ A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `co
 
 `uv run brandforge index` embeds the approved examples for those brands. A generate run then retrieves the nearest examples for each channel. With no index, the run logs a warning and writes the copy without them. `BRANDFORGE_RETRIEVAL_ENABLED=false` skips that search on purpose, which is how an eval compares the pipeline with and without examples.
 
-The offline comparison of that pipeline with the single-prompt baseline is in [docs/promptfoo.md](docs/promptfoo.md). A real run calls the models. `uv run poe check` does not.
+The offline comparison of that pipeline with the single-prompt baseline is in [docs/promptfoo.md](docs/promptfoo.md). A real run calls the models. `uv run poe check` does not. GitHub Actions also runs a five-case smoke eval, which does call the model. The summary of the manual 30-case run is [evals/results/full.md](evals/results/full.md).
 
 ## Project layout
 

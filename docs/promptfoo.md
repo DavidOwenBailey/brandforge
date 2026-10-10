@@ -2,7 +2,7 @@
 
 Promptfoo runs the fixed eval set through two systems and puts their results side by side: the single-prompt baseline, and the full pipeline. The question the suite answers is whether the pipeline writes more on-brand copy than one prompt, and at what cost (ADR 0027).
 
-Milestone M6 has the dataset (BF-33), the providers (BF-34), the deterministic assertions (BF-35), the judge rubric (BF-36), and judge calibration (BF-37). The CI smoke test is still ahead. A run returns copy, tokens, cost, and latency. It scores that copy against the hard checks, and the judge scores each variant from 1 to 5 on that brand's anchors.
+Milestone M6 has the dataset (BF-33), the providers (BF-34), the deterministic assertions (BF-35), the judge rubric (BF-36), judge calibration (BF-37), and the committed summary plus the CI smoke eval (BF-38). A run returns copy, tokens, cost, and latency. It scores that copy against the hard checks, and the judge scores each variant from 1 to 5 on that brand's anchors.
 
 ## What you can do now
 
@@ -17,15 +17,51 @@ uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/t
 
 A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, latency, the deterministic checks, and the judge's 1–5 mean. With tracing on, a pipeline row includes a Langfuse trace id. The deterministic checks do not call a model. The judge rubric does: one gateway call per variant, on the judge tier.
 
-## Still to build in this milestone
+## Results and the CI smoke test
 
-| Task | What it will add | What you have instead |
-| --- | --- | --- |
-| BF-38 Results and CI smoke | A committed summary in `evals/results/`, and a 5-case smoke eval on every push | CI runs Ruff, mypy, and pytest. The full eval is manual. |
+The full run is manual. CI runs five cases, and `uv run poe check` stays offline (ADR 0031).
 
 The deterministic checks are valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase. They must all pass. They do not grade brand voice. The judge rubric does that, and [its section](#the-judge-rubric) says how a finished grade is recorded. An error row (a missing key, a gateway failure) has no output, so it fails the eval. Promptfoo then exits with code 100.
 
-`flagged` is null on every baseline row, because the baseline has no critic. A flagged-rate comparison has to wait until a later check treats null as "not scored".
+`flagged` is null on every baseline row, because the baseline has no critic. The summary treats that as not scored. The pass rate the two systems share is the judge against the critic thresholds: a graded brief passes when its mean is at least 4.0 and every criterion mean is at least 3. That rate is reported. It does not fail CI. A low judge score does not fail the smoke job either. A provider error, a failed hard check, or a judge that cannot grade does.
+
+### Summarize a run
+
+Run the eval with `--output` pointed outside `evals/results/`. That directory holds the summary, and `.promptfoo/` and `evals/output/` are git-ignored.
+
+```bash
+npx promptfoo@latest eval \
+  --env-file .env \
+  --config evals/promptfooconfig.yaml \
+  --output evals/output/full.json \
+  --no-share
+
+uv run brandforge eval-summary evals/output/full.json --output evals/results/full
+```
+
+`eval-summary` does not call a model. It prints the side-by-side table and writes `evals/results/full.md` and `evals/results/full.json`. Each brief counts once. Tokens and cost are the system under test. The judge's own tokens stay off that total. The model names, budgets and prompts in the file are the settings of the process that wrote it, so summarize on the machine that ran the eval.
+
+The committed summary is the manual 30-case run. A five-case export is a smoke summary. Anything else is a slice. The command says which one it wrote.
+
+`uv run poe check` does not call a model and does not need `evals/results/`. Once `full.json` and `full.md` are committed, `tests/test_results.py` checks that the summary covers every case.
+
+### The smoke eval
+
+`evals/promptfooconfig.smoke.yaml` is the full config with the test list pinned to five cases:
+
+| Case | Why it is in the five |
+| --- | --- |
+| `brightleaf_01_spring_blossom` | Social and email, with an email headline cap |
+| `brightleaf_02_starter_box` | Search and display, with headline caps |
+| `ledgerly_01_vat_reminders` | Search and email, with headline caps |
+| `voltride_01_commuter_ebike` | Search and social, with no headline cap |
+| `voltride_04_test_ride_weekends` | Email, social and search, and a required phrase |
+
+```bash
+npx promptfoo@latest eval --env-file .env --config evals/promptfooconfig.smoke.yaml
+```
+
+GitHub Actions runs that file on the default Anthropic tiers. The job needs an `ANTHROPIC_API_KEY` repository secret. It does not build the example index, and it does not compare scores with `evals/results/full.md`. Fork pull requests skip the job. The timeout is 45 minutes. The raw export is uploaded as an artifact named `eval-smoke`.
 
 ## How a run is wired
 
@@ -190,7 +226,7 @@ Banned words come from the brand profile. The match is a case-insensitive substr
 
 The assertion value is the anchored rubric, so the eval record shows the scale. The model does not see promptfoo's default grader prompt. `rubricPrompt` is `{{output}}`, the JSON row. `evals/providers/judge.py` parses that row and calls the gateway with `prompts/judge_v1.md`. The brand block and the five anchors are the cached prefix. The variant under review is the user text. One call per variant, so the judge has no neighbouring copy to prefer. The reply is a list of `{criterion, score}` items. `build_critique` checks that every rubric criterion appears once and that each score is 1 to 5. The model does not decide pass or fail, and it is not asked for fixes.
 
-The row score is the mean of the per-criterion means, still on the 1–5 scale. The reason lists that mean, each criterion mean, and each variant's scores. The metric name is `judge`. A finished grade passes the assertion, including a mean of 1. The weight is 0, so the 1–5 mean stays out of the 0–1 deterministic average and still shows up as its own metric. Read `judge` for the voice comparison. A row that is not the eval JSON, a row with no variants, a reply that misses the rubric, or a gateway error fails the assertion. The rubric scored is the one on disk. When the row's `rubric_version` differs, the reason names both versions.
+The row score is the mean of the per-criterion means, still on the 1–5 scale. The reason lists that mean, each criterion mean, and each variant's scores. The metric name is `judge`. A finished grade passes the assertion, including a mean of 1. The weight is 0.001. promptfoo treats a weight of 0 as an automatic pass, so a refusal would not fail the eval. The small weight keeps that 1–5 mean from moving the 0–1 deterministic average and still shows it as its own metric. Read `judge` for the voice comparison. A row that is not the eval JSON, a row with no variants, a reply that misses the rubric, or a gateway error fails the assertion. The rubric scored is the one on disk. When the row's `rubric_version` differs, the reason names both versions.
 
 The judge's tokens and cost are on the grader result. They are not added to the row's usage, which stays the system under test. The judge call sits outside the graph, so it does not open a Langfuse run and it does not spend the pipeline's run budget.
 
@@ -285,7 +321,7 @@ npx promptfoo@latest view
 
 The output cell is the JSON row. The token and cost columns come from `tokenUsage` and `cost` on the provider, which is the system under test. The assertion columns are the deterministic checks and the `judge` metric. A failed check shows its reason. The judge reason starts with the 1–5 mean. The judge's own tokens and cost stay on that grader result.
 
-Write a local copy of promptfoo's export if you want one. Pick a path outside `evals/results/`. That directory is reserved for the summary BF-38 will commit.
+Write a local copy of promptfoo's export if you want one. Pick a path outside `evals/results/`. That directory holds the summary `brandforge eval-summary` writes, described under [Results and the CI smoke test](#results-and-the-ci-smoke-test).
 
 ```bash
 npx promptfoo@latest eval \
@@ -376,6 +412,9 @@ uv run python -c "import json; from brandforge.evals import call_baseline; print
 | Path | Role |
 | --- | --- |
 | `evals/promptfooconfig.yaml` | Providers, the case-id prompt, the test generator, the deterministic checks, cache off, concurrency 1. The judge rubric is added per case |
+| `evals/promptfooconfig.smoke.yaml` | The same run, pinned to the five smoke cases (ADR 0031) |
+| `evals/results/full.md` | The committed side-by-side summary of the manual full run |
+| `evals/results/full.json` | The same summary, one row per case per system |
 | `evals/providers/baseline.py` | Promptfoo `call_api` for the baseline |
 | `evals/providers/pipeline.py` | Promptfoo `call_api` for the pipeline |
 | `evals/providers/tests.py` | Promptfoo `generate_tests` |
@@ -387,12 +426,15 @@ uv run python -c "import json; from brandforge.evals import call_baseline; print
 | `src/brandforge/evals/assertions.py` | The deterministic checks (ADR 0028) |
 | `src/brandforge/evals/judge.py` | The judge grader (ADR 0029) |
 | `src/brandforge/evals/calibration.py` | The hand-score loader, the kappa, and the report (ADR 0030) |
+| `src/brandforge/evals/results.py` | The export summary and `SMOKE_CASE_IDS` (ADR 0031) |
 | `src/brandforge/prompts/judge_v1.md` | The versioned judge prompt. One variant, scores only |
 | `evals/calibration/*.yaml` | 15 hand-scored outputs, five briefs from each brand |
 | `tests/test_promptfoo_providers.py` | Provider tests with the model mocked |
 | `tests/test_assertions.py` | Deterministic checks, with no model call |
 | `tests/test_judge.py` | Judge grader tests. The gateway is faked |
 | `tests/test_calibration.py` | The sample and the agreement arithmetic. The judge is faked |
+| `tests/test_results.py` | The summary arithmetic and the smoke config. No model call |
+| `docs/adr/0031_eval_results_and_smoke.md` | Why the committed file is a summary, and why CI gates five cases |
 | `docs/adr/0027_promptfoo_providers.md` | Why the prompt is a case id and why both systems share one row |
 | `docs/adr/0028_deterministic_assertions.md` | What the deterministic checks measure, and what they leave to the judge |
 | `docs/adr/0029_judge_rubric.md` | How the 1–5 mean is scored, and how the optional cross-check borrows the judge tier |
