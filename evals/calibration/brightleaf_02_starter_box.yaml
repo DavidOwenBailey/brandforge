@@ -1,0 +1,11 @@
+id: brightleaf_02_starter_box
+case_id: brightleaf_02_starter_box
+channel: search
+headline: "Detox tea miracle box"
+body: "A revolutionary superfood cleanse. Six teas, one guilt-free ritual that resets you."
+cta: "Click here"
+scores:
+  voice: 1
+  clarity: 4
+  call_to_action: 2
+note: "Voice 1: health claim plus the banned words detox, miracle, revolutionary, superfood and guilt-free. Clarity 4: the false promise is easy to follow. Call to action 2: Click here."

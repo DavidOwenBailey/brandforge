@@ -1,0 +1,11 @@
+id: brightleaf_05_gift_tin
+case_id: brightleaf_05_gift_tin
+channel: email
+headline: "Tuesday, or perhaps"
+body: "Leaves, then later, depending."
+cta: "Learn more"
+scores:
+  voice: 2
+  clarity: 1
+  call_to_action: 2
+note: "Voice 2: generic, with leaves as a stray tea word and no hype. Clarity 1: the gift tin is never named and there is no point to follow. Call to action 2: Learn more."

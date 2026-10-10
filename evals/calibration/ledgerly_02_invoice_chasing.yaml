@@ -1,0 +1,11 @@
+id: ledgerly_02_invoice_chasing
+case_id: ledgerly_02_invoice_chasing
+channel: search
+headline: "Get paid faster now"
+body: "Our foolproof chasing tool will skyrocket your cash. Never worry about late invoices again!"
+cta: "Start winning today"
+scores:
+  voice: 1
+  clarity: 4
+  call_to_action: 1
+note: "Voice 1: it promises faster payment, uses an exclamation mark, and includes foolproof, skyrocket and never worry. Clarity 4: the boast is clear. Call to action 1: pushy and off the brief."

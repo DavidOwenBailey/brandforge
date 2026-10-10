@@ -190,7 +190,9 @@ The evaluation answers one question: does the full pipeline produce better on-br
 | :---- | :---- | :---- | :---- |
 | Deterministic | promptfoo assertions + pytest | Valid JSON, the eval-row schema, character limits per channel, requested channels present, banned words absent, a call to action, required phrases | 100% must pass |
 | Model-graded | promptfoo llm-rubric with the judge model | Brand-voice fit, clarity, CTA strength, each scored 1–5 against anchored descriptions | Report mean and distribution |
-| Human calibration | Your own scores on a 15-case sample | Agreement between you and the judge | Report agreement; tune rubric if it's low |
+| Human calibration | brandforge calibrate on 15 hand-scored outputs | Quadratic weighted kappa between you and the judge | Below 0.60, tune the rubric (ADR 0030) |
+
+**Human calibration:** Fifteen authored outputs live in `evals/calibration/`, five briefs from each brand. Each file is one variant and a hand score for voice, clarity and the call to action. The scores use that brand's anchors, and the same rule as the judge prompt: when the copy sits between two levels, take the lower one. `brandforge calibrate` sends each variant to the judge, alone, and compares those integers with the hand scores. The summary is quadratic weighted kappa on the fixed 1–5 scale, plus exact agreement, within-one agreement and the mean absolute error. Kappa below 0.60 is low agreement, and the rubric anchors are what to tune. The command calls the model. CI checks the files and the arithmetic with a faked judge (ADR 0030).
 
 **Reported per run:** mean score per criterion, pass rate, flagged-variant rate, tokens, cost and latency per brief, all for baseline vs. pipeline side by side.
 
@@ -201,7 +203,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * Variants are scored individually, not compared side by side, to avoid position bias.  
 * Length limits are enforced deterministically, so the judge isn't rewarding verbosity.
 
-**In CI:** lint, unit tests and a 5-case eval smoke test on every push; the full 30-case run is manual, with results committed to evals/results/.
+**In CI:** lint, unit tests and a 5-case eval smoke test on every push; the full 30-case run is manual, with results committed to evals/results/. The calibration command is manual too. CI checks the 15 files and the agreement arithmetic with a faked judge.
 
 ## **Observability, cost and security**
 
@@ -258,13 +260,13 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
-│   ├── evals/                # cases (BF-33); promptfoo providers (BF-34); assertions (BF-35); judge (BF-36)  
+│   ├── evals/                # cases (BF-33); promptfoo (BF-34); assertions (BF-35); judge (BF-36); calibration (BF-37)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
 │   ├── providers/            # promptfoo providers (BF-34), assertions (BF-35), judge grader (BF-36)  
 │   ├── promptfooconfig.yaml  # both providers, the cases, deterministic checks, judge rubric (BF-34–BF-36)  
-│   ├── calibration/          # your hand scores  
+│   ├── calibration/          # 15 hand-scored outputs; brandforge calibrate (BF-37)  
 │   └── results/              # committed run summaries  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  
 └── .github/workflows/ci.yml  # lint, type-check, tests, 5-case eval smoke test

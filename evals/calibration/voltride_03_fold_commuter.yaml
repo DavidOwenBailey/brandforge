@@ -1,0 +1,11 @@
+id: voltride_03_fold_commuter
+case_id: voltride_03_fold_commuter
+channel: email
+headline: "A folding bike for the train"
+body: "The Voltride Fold is a compact e-bike designed for people who use the train as well as the bike. It offers a practical way to travel."
+cta: "Find out more"
+scores:
+  voice: 1
+  clarity: 3
+  call_to_action: 2
+note: "Voice 1: flat catalogue copy, which the anchor treats as off-brand even without a broken rule. Clarity 3: the train commute is understandable and wordy. Call to action 2: Find out more."

@@ -1,0 +1,11 @@
+id: ledgerly_04_receipt_capture
+case_id: ledgerly_04_receipt_capture
+channel: search
+headline: "Photograph the receipt"
+body: "Take a photo and Ledgerly files it against the expense. It keeps the books tidy."
+cta: "See receipt capture"
+scores:
+  voice: 4
+  clarity: 5
+  call_to_action: 4
+note: "Voice 4: it names the receipt and the expense in plain language, and tidy is a vague slip. Clarity 5: photograph, then file. Call to action 4: specific, and a bit like a product label."

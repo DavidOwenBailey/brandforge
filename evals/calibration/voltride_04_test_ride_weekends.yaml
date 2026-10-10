@@ -1,0 +1,11 @@
+id: voltride_04_test_ride_weekends
+case_id: voltride_04_test_ride_weekends
+channel: email
+headline: "Saturday, you ride"
+body: "Book a test ride this weekend and take the bike up the street behind the shop. Twenty minutes, your pace."
+cta: "Book a test ride"
+scores:
+  voice: 4
+  clarity: 4
+  call_to_action: 5
+note: "Voice 4: confident and direct, with your pace as the soft line. Clarity 4: the invitation is clear and Saturday repeats this weekend. Call to action 5: it asks for the test ride and matches conversion."

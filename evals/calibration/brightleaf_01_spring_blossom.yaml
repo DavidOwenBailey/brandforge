@@ -1,0 +1,11 @@
+id: brightleaf_01_spring_blossom
+case_id: brightleaf_01_spring_blossom
+channel: email
+headline: "Spring blossom, on the table"
+body: "A limited green tea for a quiet morning. Steam, a soft floral scent, then the first sip."
+cta: "Meet Spring Blossom"
+scores:
+  voice: 5
+  clarity: 5
+  call_to_action: 5
+note: "Voice 5: warm, plain and sensory, with no hype or health claim. Clarity 5: the seasonal blend is named at once. Call to action 5: an invitation to meet the tea, which fits awareness."

@@ -1,0 +1,11 @@
+id: brightleaf_03_monthly_subscription
+case_id: brightleaf_03_monthly_subscription
+channel: email
+headline: "A tea subscription for you"
+body: "Get tea delivered each month. The box holds a selection of leaves for everyday drinking."
+cta: "Start the subscription"
+scores:
+  voice: 3
+  clarity: 3
+  call_to_action: 3
+note: "Voice 3: inoffensive and free of urgency, but it could be any tea brand. Clarity 3: the monthly box is clear and the leaves stay vague. Call to action 3: relevant to conversion, and bland."

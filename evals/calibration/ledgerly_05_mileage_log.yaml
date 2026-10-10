@@ -1,0 +1,11 @@
+id: ledgerly_05_mileage_log
+case_id: ledgerly_05_mileage_log
+channel: email
+headline: "About those miles you drive"
+body: "People often wonder about trips and what they might mean at year end, and there are notes you can make, though the rules depend, and a tool can help with various things."
+cta: "Click here"
+scores:
+  voice: 2
+  clarity: 2
+  call_to_action: 2
+note: "Voice 2: generic software tone. It hedges on the rules and never names the one-note mileage log. Clarity 2: the point is buried. Call to action 2: Click here."
