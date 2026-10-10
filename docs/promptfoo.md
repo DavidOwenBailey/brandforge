@@ -42,7 +42,7 @@ flowchart TD
   pkg["brandforge.evals.promptfoo"]
   brands["src/brandforge/brands/*.yaml"]
   baseline["generate_baseline"]
-  graph["run_graph"]
+  pipeline["run_graph"]
   prompts["src/brandforge/prompts/"]
   gateway["LLM gateway"]
   row["EvalOutput JSON plus tokenUsage and cost"]
@@ -58,13 +58,13 @@ flowchart TD
   pkg --> cases
   pkg --> brands
   pkg --> baseline
-  pkg --> graph
+  pkg --> pipeline
   baseline --> prompts
-  graph --> prompts
+  pipeline --> prompts
   baseline --> gateway
-  graph --> gateway
+  pipeline --> gateway
   baseline --> row
-  graph --> row
+  pipeline --> row
   row --> checks
   row --> judge
   judge --> gateway
