@@ -320,15 +320,20 @@ def crosscheck_settings(settings: Settings) -> Settings:
     )
 
 
+# promptfoo forces every weight-0 assertion to pass, so a grader refusal would
+# not fail the eval. A small weight leaves the 1-5 mean almost out of the 0-1
+# average and lets a refusal fail the run (ADR 0029, ADR 0031).
+JUDGE_ASSERTION_WEIGHT = 0.001
+
+
 def _assertion(rubric: str, *, role: str, metric: str) -> dict[str, Any]:
-    # Weight 0 keeps the 1-5 mean out of the 0-1 deterministic average. promptfoo
-    # still records the metric. The rubric prompt is the row itself: this provider
-    # scores it, and the versioned judge prompt is what the model sees.
+    # The rubric prompt is the row itself. This provider scores it, and the
+    # versioned judge prompt is what the model sees.
     return {
         "type": "llm-rubric",
         "value": rubric,
         "metric": metric,
-        "weight": 0,
+        "weight": JUDGE_ASSERTION_WEIGHT,
         "rubricPrompt": "{{output}}",
         "provider": {
             "id": "file://providers/judge.py",

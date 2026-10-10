@@ -37,10 +37,12 @@ package.
   promptfoo stores the same breakdown as grader metadata. The metric name is
   `judge`.
 - A finished grade passes the assertion, including a mean of 1. The weight is
-  0, so the 1–5 mean stays out of the 0–1 deterministic average and still shows
-  up as its own metric. A row that is not the eval JSON, a row with no
-  variants, a reply that misses the rubric, or a gateway error fails the
-  assertion. One failed grade does not stop the other provider.
+  0.001, not 0. promptfoo forces every weight-0 assertion to pass, which would
+  hide a grader refusal. The small weight keeps the 1–5 mean from moving the
+  0–1 deterministic average by any amount that rounds into the result, and it
+  still shows up as its own metric. A row that is not the eval JSON, a row
+  with no variants, a reply that misses the rubric, or a gateway error fails
+  the assertion. One failed grade does not stop the other provider.
 - The rubric scored is the one on disk for the case's brand. When the row's
   `rubric_version` differs, the reason says so.
 - The judge's tokens and cost are reported on the grader response. They are

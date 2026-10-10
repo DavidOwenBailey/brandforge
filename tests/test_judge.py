@@ -13,6 +13,7 @@ from brandforge.brands import load_brand
 from brandforge.config import ModelRef, Settings
 from brandforge.evals.cases import load_case
 from brandforge.evals.judge import (
+    JUDGE_ASSERTION_WEIGHT,
     JudgeReply,
     anchored_rubric,
     call_judge,
@@ -317,7 +318,7 @@ def test_assertions_use_the_judge_and_add_a_crosscheck_when_configured() -> None
     alone = judge_assertions(brand, settings=IsolatedSettings())
     assert [item["metric"] for item in alone] == ["judge"]
     assert alone[0]["type"] == "llm-rubric"
-    assert alone[0]["weight"] == 0
+    assert alone[0]["weight"] == JUDGE_ASSERTION_WEIGHT
     assert alone[0]["rubricPrompt"] == "{{output}}"
     assert alone[0]["provider"]["config"] == {"role": "judge"}
 

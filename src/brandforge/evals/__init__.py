@@ -1,11 +1,12 @@
-"""Eval dataset (BF-33), promptfoo providers (BF-34), checks (BF-35), judge (BF-36)
-and calibration (BF-37).
+"""Eval dataset (BF-33), promptfoo providers (BF-34), checks (BF-35), judge (BF-36),
+calibration (BF-37) and the run summary (BF-38).
 
 The YAML cases live in the repo's ``evals/cases/`` directory. promptfoo loads
 one test per case, runs that case through the baseline and the pipeline, scores
 the row with deterministic checks, then grades each variant on the judge rubric.
 ``evals/calibration/`` holds hand scores for 15 outputs. ``calibrate`` compares
-them with that judge.
+them with that judge. ``summarize_path`` turns a promptfoo export into the
+side-by-side summary committed under ``evals/results/``.
 """
 
 from brandforge.evals.assertions import (
@@ -54,8 +55,16 @@ from brandforge.evals.promptfoo import (
     call_pipeline,
     generate_tests,
 )
+from brandforge.evals.results import (
+    SMOKE_CASE_IDS,
+    EvalSummary,
+    ResultsError,
+    format_summary,
+    summarize_path,
+)
 
 __all__ = [
+    "SMOKE_CASE_IDS",
     "CalibrationError",
     "CalibrationItem",
     "CalibrationReport",
@@ -63,11 +72,13 @@ __all__ = [
     "Check",
     "EvalCase",
     "EvalOutput",
+    "EvalSummary",
     "EvalUsage",
     "EvalVariant",
     "HardConstraints",
     "JudgeGrade",
     "JudgeReply",
+    "ResultsError",
     "anchored_rubric",
     "assert_banned_words",
     "assert_channel_limits",
@@ -84,6 +95,7 @@ __all__ = [
     "check_json",
     "check_must_mention",
     "format_report",
+    "format_summary",
     "generate_tests",
     "judge_assertions",
     "list_case_ids",
@@ -92,4 +104,5 @@ __all__ = [
     "load_cases",
     "run_calibration",
     "score_row",
+    "summarize_path",
 ]

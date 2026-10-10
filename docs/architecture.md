@@ -203,7 +203,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * Variants are scored individually, not compared side by side, to avoid position bias.  
 * Length limits are enforced deterministically, so the judge isn't rewarding verbosity.
 
-**In CI:** lint, unit tests and a 5-case eval smoke test on every push; the full 30-case run is manual, with results committed to evals/results/. The calibration command is manual too. CI checks the 15 files and the agreement arithmetic with a faked judge.
+**In CI:** lint and unit tests on every push. The 5-case smoke config is `evals/promptfooconfig.smoke.yaml` (ADR 0031). Its GitHub Actions job is paused until the repository has an `ANTHROPIC_API_KEY` secret. When that job is on, it uses the default Anthropic tiers and calls the model. `uv run poe check` stays offline. The job fails when a provider errors, a deterministic check fails, or the judge cannot grade. A low judge score does not fail it. Fork pull requests skip the job, because they do not receive the API key. The full 30-case run is manual. `brandforge eval-summary` turns that promptfoo export into `evals/results/full.md` and `evals/results/full.json`. The calibration command is manual too. CI checks the 15 files and the agreement arithmetic with a faked judge.
 
 ## **Observability, cost and security**
 
@@ -260,16 +260,17 @@ brandforge/
 │   │   └── adapters/         # anthropic_adapter.py, gemini_adapter.py  
 │   ├── retrieval/            # example corpus (YAML); Chroma index build + query  
 │   ├── brands/               # brand profiles and rubrics (YAML)  
-│   ├── evals/                # cases (BF-33); promptfoo (BF-34); assertions (BF-35); judge (BF-36); calibration (BF-37)  
+│   ├── evals/                # cases (BF-33); promptfoo (BF-34); assertions (BF-35); judge (BF-36); calibration (BF-37); results (BF-38)  
 │   └── interfaces/           # cli.py (Typer), api.py (FastAPI), app.py (Streamlit)  
 ├── evals/  
 │   ├── cases/                # 30 brief cases, one YAML file each (BF-33)  
 │   ├── providers/            # promptfoo providers (BF-34), assertions (BF-35), judge grader (BF-36)  
 │   ├── promptfooconfig.yaml  # both providers, the cases, deterministic checks, judge rubric (BF-34–BF-36)  
+│   ├── promptfooconfig.smoke.yaml  # five cases, the CI smoke eval (BF-38)  
 │   ├── calibration/          # 15 hand-scored outputs; brandforge calibrate (BF-37)  
-│   └── results/              # committed run summaries  
+│   └── results/              # full.md and full.json from the manual run (BF-38)  
 ├── tests/                    # unit tests: router logic, schemas, gateway (LLM mocked)  
-└── .github/workflows/ci.yml  # lint, type-check, tests, 5-case eval smoke test
+└── .github/workflows/ci.yml  # lint, type-check, tests; 5-case smoke job paused
 ```
 ## **Decisions and open questions**
 
