@@ -2,7 +2,7 @@
 
 Promptfoo runs the fixed eval set through two systems and puts their results side by side: the single-prompt baseline, and the full pipeline. The question the suite answers is whether the pipeline writes more on-brand copy than one prompt, and at what cost (ADR 0027).
 
-Milestone M6 has the dataset (BF-33), the providers (BF-34), and the deterministic assertions (BF-35). The judge, calibration, and the CI smoke test are still ahead. A run returns copy, tokens, cost, and latency, and it scores that copy against the hard checks: valid JSON, headline length, the requested channels, banned words, a call to action, and any required phrase.
+Milestone M6 has the dataset (BF-33), the providers (BF-34), the deterministic assertions (BF-35), and the judge rubric (BF-36). Calibration and the CI smoke test are still ahead. A run returns copy, tokens, cost, and latency. It scores that copy against the hard checks, and the judge scores each variant from 1 to 5 on that brand's anchors.
 
 ## What you can do now
 
@@ -10,22 +10,21 @@ These commands are safe to run. They load the case files and the providers. They
 
 ```bash
 npx promptfoo@latest validate config --config evals/promptfooconfig.yaml
-uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/test_assertions.py
+uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/test_assertions.py tests/test_judge.py
 ```
 
-`validate config` checks the yaml and the test list. The pytest files check the 30 cases, the provider wiring, and the deterministic checks. The model calls are mocked.
+`validate config` checks the yaml and the test list. The pytest files check the 30 cases, the provider wiring, the deterministic checks, and the judge grader. The model calls are mocked.
 
-A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, latency, and whether the deterministic checks passed. With tracing on, a pipeline row includes a Langfuse trace id. The assertions themselves do not call a model.
+A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, latency, the deterministic checks, and the judge's 1–5 mean. With tracing on, a pipeline row includes a Langfuse trace id. The deterministic checks do not call a model. The judge rubric does: one gateway call per variant, on the judge tier.
 
 ## Still to build in this milestone
 
 | Task | What it will add | What you have instead |
 | --- | --- | --- |
-| BF-36 Judge rubric | `llm-rubric` scores for brand voice, clarity, and CTA strength, on the judge tier | `BRANDFORGE_MODELS__JUDGE` is in config. This eval does not call it. |
 | BF-37 Judge calibration | Your scores for 15 outputs in `evals/calibration/`, and an agreement script | That directory is not in the repo yet. |
 | BF-38 Results and CI smoke | A committed summary in `evals/results/`, and a 5-case smoke eval on every push | CI runs Ruff, mypy, and pytest. The full eval is manual. |
 
-A row passes when every deterministic check passes. Those checks are valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase. They do not grade brand voice. That is the judge rubric, which this run does not call. An error row (a missing key, a gateway failure) has no output, so it fails the eval. Promptfoo then exits with code 100.
+The deterministic checks are valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase. They must all pass. They do not grade brand voice. The judge rubric does that, and [its section](#the-judge-rubric) says how a finished grade is recorded. An error row (a missing key, a gateway failure) has no output, so it fails the eval. Promptfoo then exits with code 100.
 
 `flagged` is null on every baseline row, because the baseline has no critic. A flagged-rate comparison has to wait until a later check treats null as "not scored".
 
@@ -48,6 +47,7 @@ flowchart TD
   gateway["LLM gateway"]
   row["EvalOutput JSON plus tokenUsage and cost"]
   checks["deterministic assertions"]
+  judge["judge rubric, one call per variant"]
 
   yaml --> tests
   yaml --> basePy
@@ -66,6 +66,8 @@ flowchart TD
   baseline --> row
   graph --> row
   row --> checks
+  row --> judge
+  judge --> gateway
 ```
 
 For one case, the call order is:
@@ -79,6 +81,7 @@ For one case, the call order is:
 7. Those two functions build the model prompt from the versioned files in `src/brandforge/prompts/` and call the gateway. The gateway resolves the tier, validates the schema, retries, and counts tokens. The same code path serves `brandforge generate`.
 8. The provider returns one JSON string in `output`, plus `tokenUsage` and `cost`, which promptfoo shows in its own columns.
 9. promptfoo runs the `defaultTest` assertions on that output. `is-json` checks the syntax. The Python checks load the case and the brand and score the row. They do not call a model. `evals/providers/assertions.py` forwards to `brandforge.evals.assertions`, the same split as the providers.
+10. `generate_tests` also attaches one `llm-rubric` per case, using that brand's anchors. `evals/providers/judge.py` forwards to `brandforge.evals.judge`. The grader calls the gateway once per variant, on the judge tier, with `prompts/judge_v1.md`. The model sees one variant. The row score is the mean of the criterion means. When a cross-check model is configured, a second rubric grades the same anchors again. The details are in [The judge rubric](#the-judge-rubric).
 
 The two providers are separate files, so promptfoo keeps their rows apart. The config also turns promptfoo's disk cache off. The cache key is the promptfoo prompt, which is only the case id, so a change to `prompts/baseline_v2.md` would not expire a cached row.
 
@@ -182,6 +185,18 @@ The cap is the case's `headline_max_chars`. The email subject is the headline. T
 
 Banned words come from the brand profile. The match is a case-insensitive substring, the same rule as the example corpus. A required phrase uses that same match, across the headline, the body, and the call to action. A phrase split across two of those fields does not count.
 
+## The judge rubric
+
+`generate_tests` adds one `llm-rubric` to each case. The anchors come from that brand's profile, the same scale the critic uses. `defaultTest` stays the six deterministic checks. Promptfoo runs those checks and then this rubric (ADR 0029).
+
+The assertion value is the anchored rubric, so the eval record shows the scale. The model does not see promptfoo's default grader prompt. `rubricPrompt` is `{{output}}`, the JSON row. `evals/providers/judge.py` parses that row and calls the gateway with `prompts/judge_v1.md`. The brand block and the five anchors are the cached prefix. The variant under review is the user text. One call per variant, so the judge has no neighbouring copy to prefer. The reply is a list of `{criterion, score}` items. `build_critique` checks that every rubric criterion appears once and that each score is 1 to 5. The model does not decide pass or fail, and it is not asked for fixes.
+
+The row score is the mean of the per-criterion means, still on the 1–5 scale. The reason lists that mean, each criterion mean, and each variant's scores. The metric name is `judge`. A finished grade passes the assertion, including a mean of 1. The weight is 0, so the 1–5 mean stays out of the 0–1 deterministic average and still shows up as its own metric. Read `judge` for the voice comparison. A row that is not the eval JSON, a row with no variants, a reply that misses the rubric, or a gateway error fails the assertion. The rubric scored is the one on disk. When the row's `rubric_version` differs, the reason names both versions.
+
+The judge's tokens and cost are on the grader result. They are not added to the row's usage, which stays the system under test. The judge call sits outside the graph, so it does not open a Langfuse run and it does not spend the pipeline's run budget.
+
+Cross-check is off unless `BRANDFORGE_JUDGE_CROSSCHECK_MODEL` is a `provider:model` string and both of its prices are above 0. Then `generate_tests` adds a second `llm-rubric` with metric `judge_crosscheck`. That call still goes through the gateway as the judge tier, with the cross-check model and prices copied onto the tier for that call. The Opus cache-read override is not copied. Leave the model blank to score with the judge tier only. The three pipeline tiers are unchanged.
+
 ## Before you run a model
 
 From the repository root:
@@ -227,7 +242,7 @@ The first index build downloads the embedding model. Later builds reuse it.
 
 ## Run one case
 
-This runs `brightleaf_01_spring_blossom` through the baseline and the pipeline. That is two model-backed rows, and the pipeline row is several calls.
+This runs `brightleaf_01_spring_blossom` through the baseline and the pipeline. That is two model-backed rows, and the pipeline row is several calls. After each row, the judge scores every variant on its own. A second model does the same when the cross-check is configured.
 
 ```bash
 npx promptfoo@latest eval \
@@ -251,7 +266,7 @@ Open the latest run in a browser:
 npx promptfoo@latest view
 ```
 
-The output cell is the JSON row. The token and cost columns come from `tokenUsage` and `cost`. The assertion columns are the deterministic checks. A failed check shows its reason. There is no judge score yet.
+The output cell is the JSON row. The token and cost columns come from `tokenUsage` and `cost` on the provider, which is the system under test. The assertion columns are the deterministic checks and the `judge` metric. A failed check shows its reason. The judge reason starts with the 1–5 mean. The judge's own tokens and cost stay on that grader result.
 
 Write a local copy of promptfoo's export if you want one. Pick a path outside `evals/results/`. That directory is reserved for the summary BF-38 will commit.
 
@@ -337,22 +352,27 @@ The same functions promptfoo calls are importable. This still uses the model. It
 uv run python -c "import json; from brandforge.evals import call_baseline; print(json.dumps(call_baseline('brightleaf_01_spring_blossom', {}, {}), indent=2))"
 ```
 
-`call_pipeline` is the graph. `generate_tests()` is the test list, and it does not call a model.
+`call_pipeline` is the graph. `generate_tests()` is the test list, and it does not call a model. `score_row` is the judge, and a real call uses the judge tier.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `evals/promptfooconfig.yaml` | Providers, the case-id prompt, the test generator, the deterministic checks, cache off, concurrency 1 |
+| `evals/promptfooconfig.yaml` | Providers, the case-id prompt, the test generator, the deterministic checks, cache off, concurrency 1. The judge rubric is added per case |
 | `evals/providers/baseline.py` | Promptfoo `call_api` for the baseline |
 | `evals/providers/pipeline.py` | Promptfoo `call_api` for the pipeline |
 | `evals/providers/tests.py` | Promptfoo `generate_tests` |
 | `evals/providers/assertions.py` | Promptfoo assertions. They forward to the package |
+| `evals/providers/judge.py` | Promptfoo grader for the `llm-rubric`. It forwards to the package |
 | `evals/cases/*.yaml` | The 30 cases (ADR 0026) |
 | `src/brandforge/evals/promptfoo.py` | The row shape and the two provider functions |
 | `src/brandforge/evals/cases.py` | Case loader |
 | `src/brandforge/evals/assertions.py` | The deterministic checks (ADR 0028) |
+| `src/brandforge/evals/judge.py` | The judge grader (ADR 0029) |
+| `src/brandforge/prompts/judge_v1.md` | The versioned judge prompt. One variant, scores only |
 | `tests/test_promptfoo_providers.py` | Provider tests with the model mocked |
 | `tests/test_assertions.py` | Deterministic checks, with no model call |
+| `tests/test_judge.py` | Judge grader tests. The gateway is faked |
 | `docs/adr/0027_promptfoo_providers.md` | Why the prompt is a case id and why both systems share one row |
 | `docs/adr/0028_deterministic_assertions.md` | What the deterministic checks measure, and what they leave to the judge |
+| `docs/adr/0029_judge_rubric.md` | How the 1–5 mean is scored, and how the optional cross-check borrows the judge tier |
