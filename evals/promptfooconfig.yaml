@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
-# Baseline vs pipeline (BF-34). Assertions and the judge rubric come later.
+# Baseline vs pipeline (BF-34) and the deterministic assertions (BF-35).
+# The judge rubric comes later.
 #
 # From the repo root, with the project environment available:
 #   npx promptfoo@latest eval --config evals/promptfooconfig.yaml
@@ -19,6 +20,29 @@ providers:
     config:
       # One pipeline is several model calls. The worker default is five minutes.
       timeout: 600000
+
+# Syntax is is-json. The Python checks are the eval row, headline caps, the
+# requested channels, banned words, a call to action, and required phrases.
+# They load the case. They do not call a model (ADR 0028).
+defaultTest:
+  assert:
+    - type: is-json
+      metric: valid_json
+    - type: python
+      value: file://providers/assertions.py:assert_json
+      metric: eval_row
+    - type: python
+      value: file://providers/assertions.py:assert_channel_limits
+      metric: channel_limits
+    - type: python
+      value: file://providers/assertions.py:assert_banned_words
+      metric: banned_words
+    - type: python
+      value: file://providers/assertions.py:assert_cta
+      metric: cta_present
+    - type: python
+      value: file://providers/assertions.py:assert_must_mention
+      metric: must_mention
 
 tests:
   - file://providers/tests.py:generate_tests

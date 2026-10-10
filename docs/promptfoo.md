@@ -2,7 +2,7 @@
 
 Promptfoo runs the fixed eval set through two systems and puts their results side by side: the single-prompt baseline, and the full pipeline. The question the suite answers is whether the pipeline writes more on-brand copy than one prompt, and at what cost (ADR 0027).
 
-Milestone M6 has the dataset (BF-33) and these providers (BF-34). Assertions, the judge, calibration, and the CI smoke test are still ahead. A run you start today returns copy, tokens, cost, and latency. It does not score that copy.
+Milestone M6 has the dataset (BF-33), the providers (BF-34), and the deterministic assertions (BF-35). The judge, calibration, and the CI smoke test are still ahead. A run returns copy, tokens, cost, and latency, and it scores that copy against the hard checks: valid JSON, headline length, the requested channels, banned words, a call to action, and any required phrase.
 
 ## What you can do now
 
@@ -10,23 +10,22 @@ These commands are safe to run. They load the case files and the providers. They
 
 ```bash
 npx promptfoo@latest validate config --config evals/promptfooconfig.yaml
-uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py
+uv run pytest tests/test_eval_cases.py tests/test_promptfoo_providers.py tests/test_assertions.py
 ```
 
-`validate config` checks the yaml and the test list. The pytest file checks the 30 cases and the provider wiring with the model calls mocked.
+`validate config` checks the yaml and the test list. The pytest files check the 30 cases, the provider wiring, and the deterministic checks. The model calls are mocked.
 
-A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, and latency. With tracing on, a pipeline row includes a Langfuse trace id.
+A real comparison is also available. It calls the model, so start with one case. The steps are under [Run one case](#run-one-case). From the promptfoo table you can read each system's variants, token counts, cost, latency, and whether the deterministic checks passed. With tracing on, a pipeline row includes a Langfuse trace id. The assertions themselves do not call a model.
 
 ## Still to build in this milestone
 
 | Task | What it will add | What you have instead |
 | --- | --- | --- |
-| BF-35 Deterministic assertions | Valid JSON, headline length, banned words, a call to action | The row is JSON, and the case file already records the caps and required phrases. Nothing checks them. |
 | BF-36 Judge rubric | `llm-rubric` scores for brand voice, clarity, and CTA strength, on the judge tier | `BRANDFORGE_MODELS__JUDGE` is in config. This eval does not call it. |
 | BF-37 Judge calibration | Your scores for 15 outputs in `evals/calibration/`, and an agreement script | That directory is not in the repo yet. |
 | BF-38 Results and CI smoke | A committed summary in `evals/results/`, and a 5-case smoke eval on every push | CI runs Ruff, mypy, and pytest. The full eval is manual. |
 
-Until BF-35 lands, promptfoo treats a row as a pass when the provider returns output. A green exit means both systems returned JSON. It does not mean the copy is on brand. An error row (a missing key, a gateway failure) fails the eval. Promptfoo then exits with code 100.
+A row passes when every deterministic check passes. Those checks are valid JSON, the eval-row schema, headline caps, the requested channels, banned words, a call to action, and any required phrase. They do not grade brand voice. That is the judge rubric, which this run does not call. An error row (a missing key, a gateway failure) has no output, so it fails the eval. Promptfoo then exits with code 100.
 
 `flagged` is null on every baseline row, because the baseline has no critic. A flagged-rate comparison has to wait until a later check treats null as "not scored".
 
@@ -48,6 +47,7 @@ flowchart TD
   prompts["src/brandforge/prompts/"]
   gateway["LLM gateway"]
   row["EvalOutput JSON plus tokenUsage and cost"]
+  checks["deterministic assertions"]
 
   yaml --> tests
   yaml --> basePy
@@ -65,6 +65,7 @@ flowchart TD
   graph --> gateway
   baseline --> row
   graph --> row
+  row --> checks
 ```
 
 For one case, the call order is:
@@ -77,6 +78,7 @@ For one case, the call order is:
 6. The package loads the case and the brand profile. The baseline calls `generate_baseline`. The pipeline calls `run_graph` with no checkpointer.
 7. Those two functions build the model prompt from the versioned files in `src/brandforge/prompts/` and call the gateway. The gateway resolves the tier, validates the schema, retries, and counts tokens. The same code path serves `brandforge generate`.
 8. The provider returns one JSON string in `output`, plus `tokenUsage` and `cost`, which promptfoo shows in its own columns.
+9. promptfoo runs the `defaultTest` assertions on that output. `is-json` checks the syntax. The Python checks load the case and the brand and score the row. They do not call a model. `evals/providers/assertions.py` forwards to `brandforge.evals.assertions`, the same split as the providers.
 
 The two providers are separate files, so promptfoo keeps their rows apart. The config also turns promptfoo's disk cache off. The cache key is the promptfoo prompt, which is only the case id, so a change to `prompts/baseline_v2.md` would not expire a cached row.
 
@@ -159,7 +161,26 @@ Latency in the promptfoo table is the wall clock of `call_api`: one gateway call
 
 When a case cannot run, the provider returns `{"error": "ErrorType: message"}` and no `output`. One bad case leaves the other cases, and the other provider, running. A programming bug (`AssertionError`) is the exception: that one propagates.
 
-Headline caps and `must_mention` phrases live on the case as `hard_constraints`. The loader checks that they match the brief text. The provider passes the brief through, so the model is asked for them. Nothing in this milestone checks the reply against them.
+Headline caps and `must_mention` phrases live on the case as `hard_constraints`. The loader checks that they match the brief text. The provider passes the brief through, so the model was asked for them. The checks below score the reply.
+
+## Deterministic assertions
+
+Every test runs the same checks. They are `defaultTest` in `evals/promptfooconfig.yaml`. pytest calls the same functions. Neither path calls a model (ADR 0028).
+
+| Check | Metric | Passes when |
+| --- | --- | --- |
+| Valid JSON | `valid_json` | The output parses as JSON |
+| Eval row | `eval_row` | That JSON is an `EvalOutput` for this case and this brand |
+| Channel limits | `channel_limits` | Every requested channel has a variant, no extra channel appears, and each headline is within `headline_max_chars` when that channel has a cap |
+| Banned words | `banned_words` | No brand banned word appears in a headline, body, or call to action |
+| Call to action | `cta_present` | Every variant has a non-empty call to action, and the row has at least one variant |
+| Required phrase | `must_mention` | Every variant includes each `must_mention` phrase. A case with none still needs variants |
+
+A row fails when any check fails. The score is 1 or 0. `status` may be `partial` or `failed` and the JSON checks still pass. The copy checks then fail if the copy is missing or over a cap.
+
+The cap is the case's `headline_max_chars`. The email subject is the headline. The length is the number of characters in the headline string. A channel the case does not cap, usually social, is not length-checked. The check asks for each requested channel at least once. It does not ask for a fixed number of variants, because the baseline's count is a setting and the planner chooses its own.
+
+Banned words come from the brand profile. The match is a case-insensitive substring, the same rule as the example corpus. A required phrase uses that same match, across the headline, the body, and the call to action. A phrase split across two of those fields does not count.
 
 ## Before you run a model
 
@@ -230,7 +251,7 @@ Open the latest run in a browser:
 npx promptfoo@latest view
 ```
 
-The output cell is the JSON row. The token and cost columns come from `tokenUsage` and `cost`. There is no assertion column that judges the copy.
+The output cell is the JSON row. The token and cost columns come from `tokenUsage` and `cost`. The assertion columns are the deterministic checks. A failed check shows its reason. There is no judge score yet.
 
 Write a local copy of promptfoo's export if you want one. Pick a path outside `evals/results/`. That directory is reserved for the summary BF-38 will commit.
 
@@ -322,12 +343,16 @@ uv run python -c "import json; from brandforge.evals import call_baseline; print
 
 | Path | Role |
 | --- | --- |
-| `evals/promptfooconfig.yaml` | Providers, the case-id prompt, the test generator, cache off, concurrency 1 |
+| `evals/promptfooconfig.yaml` | Providers, the case-id prompt, the test generator, the deterministic checks, cache off, concurrency 1 |
 | `evals/providers/baseline.py` | Promptfoo `call_api` for the baseline |
 | `evals/providers/pipeline.py` | Promptfoo `call_api` for the pipeline |
 | `evals/providers/tests.py` | Promptfoo `generate_tests` |
+| `evals/providers/assertions.py` | Promptfoo assertions. They forward to the package |
 | `evals/cases/*.yaml` | The 30 cases (ADR 0026) |
 | `src/brandforge/evals/promptfoo.py` | The row shape and the two provider functions |
 | `src/brandforge/evals/cases.py` | Case loader |
+| `src/brandforge/evals/assertions.py` | The deterministic checks (ADR 0028) |
 | `tests/test_promptfoo_providers.py` | Provider tests with the model mocked |
+| `tests/test_assertions.py` | Deterministic checks, with no model call |
 | `docs/adr/0027_promptfoo_providers.md` | Why the prompt is a case id and why both systems share one row |
+| `docs/adr/0028_deterministic_assertions.md` | What the deterministic checks measure, and what they leave to the judge |
