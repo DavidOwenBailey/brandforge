@@ -1,0 +1,30 @@
+# Build context for the API and demo image (BF-41). The image installs from
+# pyproject.toml, uv.lock and src/. Secrets and local runtime data stay out.
+
+.git
+.github
+.venv
+venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+.brandforge
+data
+chroma
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+deploy/langfuse
+docs
+evals
+tests
+*.sqlite
+*.sqlite3
+*.db
+.promptfoo
+.DS_Store
+Thumbs.db

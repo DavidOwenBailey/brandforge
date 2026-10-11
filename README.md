@@ -28,6 +28,8 @@ Each run also prints a Trace ID. Tracing is optional, and the default backend is
 
 `uv run brandforge demo` opens a page at <http://127.0.0.1:8501>. Pick a brand, paste a brief (the same YAML as a brief file, or JSON), and the page shows the variants, scores and flags returned by `POST /generate`. The API has to be running first (`uv run brandforge serve`). The page does not call a model itself. `BRANDFORGE_DEMO_HOST`, `BRANDFORGE_DEMO_PORT` and `BRANDFORGE_API_BASE_URL` change the addresses.
 
+`docker compose up` starts the API and the demo page together, on this machine: the API at <http://127.0.0.1:8000> and the page at <http://127.0.0.1:8501>. Copy `.env.example` to `.env` and set `ANTHROPIC_API_KEY`. That one key is enough. OpenAPI docs are at <http://127.0.0.1:8000/docs>. `docker compose exec api brandforge inspect <run-id>` reads a run the API saved. `docker compose run --rm api brandforge index` builds the example index. `docker compose down` stops both. The optional Langfuse stack stays a separate file ([docs/langfuse.md](docs/langfuse.md)).
+
 The same run writes structured logs to stderr: one JSON object per line, each carrying that run's ID (and the trace ID, when there is one), so a log line can be tied to the printed Run ID and to the Langfuse trace. `BRANDFORGE_LOG_LEVEL` sets the level (default `INFO`) and `BRANDFORGE_LOG_FORMAT=console` renders the same fields for a person. The tables the CLI prints stay on stdout.
 
 A brief is a YAML file with `product`, `audience`, `objective` (`awareness`, `consideration` or `conversion`), `channels` (`search`, `social`, `display`, `email`) and optional `constraints`. Known brands: `brightleaf`, `ledgerly`, `voltride`.

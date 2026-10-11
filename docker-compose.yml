@@ -1,0 +1,105 @@
+# API and demo page (BF-41, ADR 0034).
+# `docker compose up` starts both. One ANTHROPIC_API_KEY in .env is enough:
+# the default model tiers are Anthropic. This file does not start Langfuse.
+# That stack is deploy/langfuse/docker-compose.yml (ADR 0022).
+#
+# The containers listen on 0.0.0.0 so they can reach each other. The published
+# ports bind to 127.0.0.1, which is the same control as `brandforge serve`
+# on the laptop: the routes have no auth. Do not publish them wider.
+#
+# .env is read as-is, then the addresses and the data paths below replace the
+# laptop values. 127.0.0.1 inside a container is that container, not the API.
+
+name: brandforge
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    build: .
+    image: brandforge:local
+    pull_policy: build
+    logging: *default-logging
+    command: ["brandforge", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      BRANDFORGE_API_HOST: "0.0.0.0"
+      BRANDFORGE_API_PORT: "8000"
+      BRANDFORGE_CHECKPOINT_DB: /app/.brandforge/checkpoints.sqlite
+      BRANDFORGE_CHROMA_DIR: /app/.brandforge/chroma
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - brandforge_data:/app/.brandforge
+    healthcheck:
+      # /openapi.json does not run a brief and does not call a model.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  demo:
+    build: .
+    image: brandforge:local
+    pull_policy: build
+    logging: *default-logging
+    command:
+      [
+        "brandforge",
+        "demo",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8501",
+        "--api-url",
+        "http://api:8000",
+      ]
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      BRANDFORGE_DEMO_HOST: "0.0.0.0"
+      BRANDFORGE_DEMO_PORT: "8501"
+      BRANDFORGE_API_BASE_URL: http://api:8000
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+      STREAMLIT_SERVER_FILE_WATCHER_TYPE: none
+      STREAMLIT_SERVER_HEADLESS: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8501:8501"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  brandforge_data:

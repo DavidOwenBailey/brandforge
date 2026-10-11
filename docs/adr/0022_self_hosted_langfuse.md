@@ -13,8 +13,8 @@ option is documented and the cloud free tier remains the default.
 Langfuse v4 is not one container. The current upstream Compose file runs a web container, a
 worker, Postgres, ClickHouse, Redis and MinIO, and it is several hundred lines of optional
 enterprise settings. The repository layout in the architecture puts "app + optional Langfuse"
-in one root `docker-compose.yml`. That file does not exist yet: the app containers are BF-41,
-whose done-when is that `docker compose up` starts the API and the demo page.
+in one root `docker-compose.yml`. The app containers are that file (BF-41, ADR 0034):
+`docker compose up` starts the API and the demo page, and it does not start Langfuse.
 
 ## Decision
 
@@ -68,8 +68,8 @@ the Langfuse containers to Langfuse is off. Container logs rotate at 10 MB.
 - **Gained:** the default path is still "paste two Cloud keys", which is the path a fresh
   clone can finish without Docker. Someone who does not want prompts to leave the machine has
   a pinned stack and a short doc.
-- **Gained:** BF-41 can add a root Compose file later without inheriting Langfuse, and
-  `docker compose up` will mean the app.
+- **Gained:** the root Compose file (ADR 0034) does not inherit Langfuse, and
+  `docker compose up` means the app.
 - **Trade-off accepted:** the Compose file will drift from upstream. Upgrading is a deliberate
   tag bump of web and worker together, not a `git pull` of Langfuse.
 - **Trade-off accepted:** MinIO is unpinned. A bad pull of that image is the one moving part.

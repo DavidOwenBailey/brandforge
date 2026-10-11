@@ -48,6 +48,8 @@ docker compose -f deploy/langfuse/docker-compose.yml down
 
 Add `-v` only when you mean to delete the traces. Volumes keep the data across a plain `down`.
 
+This stack is not part of the app's Compose file. `docker compose up` in the repository root starts the API and the demo page only (ADR 0034). From those containers, `localhost` is the container. Cloud needs no change. To trace a container run to this stack, set `LANGFUSE_HOST=http://host.docker.internal:3000` in the repository-root `.env`.
+
 ### What is published
 
 | Port | Service | Bound to | Why |

@@ -232,6 +232,7 @@ The evaluation answers one question: does the full pipeline produce better on-br
 * No real brand or customer data in the repo; all three brands are fictional.  
 * `POST /generate` accepts a brand id and a brief and returns the run result, including `trace_id` (null when tracing is off). A finished run is HTTP 200 even when its status is partial or failed; that status is in the body. OpenAPI docs are at `/docs`. `brandforge serve` binds to 127.0.0.1 by default. The endpoint has no auth for the POC; production would add auth, rate limiting and tenant isolation per brand (ADR 0032).
 * `brandforge demo` serves a Streamlit page on 127.0.0.1:8501. The page reads brand ids from the brand store and posts the pasted brief to `POST /generate`. It does not run the graph. The browser talks only to Streamlit; the page calls the API from its own process, so CORS stays off (ADR 0033).  
+* `docker compose up` starts the API and the demo page from one image (ADR 0034). The containers listen on 0.0.0.0 so the demo can call the API; the published ports bind to 127.0.0.1. The page calls `http://api:8000`. One `ANTHROPIC_API_KEY` in `.env` is enough, and the image does not contain the key. Langfuse stays a separate Compose file (ADR 0022).  
 
 
 ## **Repository structure**
@@ -239,7 +240,9 @@ The evaluation answers one question: does the full pipeline produce better on-br
 brandforge/  
 ├── README.md                 # problem, diagram, quickstart, results, limitations  
 ├── pyproject.toml            # pinned deps, ruff, mypy, pytest config  
-├── docker-compose.yml        # API and demo page (BF-41)  
+├── Dockerfile                # one image for the API and the demo page (BF-41)  
+├── docker-compose.yml        # `docker compose up` starts both (BF-41)  
+├── .dockerignore             # keeps .env and local data out of the image  
 ├── deploy/langfuse/          # optional self-hosted Langfuse; cloud free tier is the default  
 ├── .env.example  
 ├── docs/  
