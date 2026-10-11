@@ -148,3 +148,58 @@ def test_api_host_rejects_blank(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRANDFORGE_API_HOST", "")
     with pytest.raises(ValueError):
         IsolatedSettings()
+
+
+def test_demo_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BRANDFORGE_DEMO_HOST", raising=False)
+    monkeypatch.delenv("BRANDFORGE_DEMO_PORT", raising=False)
+    monkeypatch.delenv("BRANDFORGE_API_BASE_URL", raising=False)
+    settings = IsolatedSettings()
+    assert settings.demo_host == "127.0.0.1"
+    assert settings.demo_port == 8501
+    assert settings.api_base_url == "http://127.0.0.1:8000"
+
+
+def test_demo_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_DEMO_HOST", "0.0.0.0")
+    monkeypatch.setenv("BRANDFORGE_DEMO_PORT", "8600")
+    monkeypatch.setenv("BRANDFORGE_API_BASE_URL", "http://api:8000/")
+    settings = IsolatedSettings()
+    assert settings.demo_host == "0.0.0.0"
+    assert settings.demo_port == 8600
+    assert settings.api_base_url == "http://api:8000"
+
+
+@pytest.mark.parametrize("bad", ["0", "65536"])
+def test_demo_port_rejects_values_outside_1_to_65535(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_DEMO_PORT", bad)
+    with pytest.raises(ValueError):
+        IsolatedSettings()
+
+
+def test_demo_host_rejects_blank(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRANDFORGE_DEMO_HOST", "")
+    with pytest.raises(ValueError):
+        IsolatedSettings()
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "ftp://example.test",
+        "http://",
+        "127.0.0.1:8000",
+        "http://127.0.0.1:8000/generate",
+        "http://127.0.0.1:8000?x=1",
+        "http://127.0.0.1:8000#docs",
+    ],
+)
+def test_api_base_url_rejects_a_value_that_is_not_an_origin(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("BRANDFORGE_API_BASE_URL", bad)
+    with pytest.raises(ValueError):
+        IsolatedSettings()

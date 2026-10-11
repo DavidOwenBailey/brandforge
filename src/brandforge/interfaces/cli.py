@@ -1,5 +1,5 @@
 """Typer CLI: `brandforge generate`, `brandforge index`, `brandforge inspect <run_id>`,
-`brandforge calibrate`, `brandforge eval-summary` and `brandforge serve`.
+`brandforge calibrate`, `brandforge eval-summary`, `brandforge serve` and `brandforge demo`.
 
 `generate` runs the brief through the LangGraph pipeline (`brandforge.graph`) and prints the
 variants, a summary table of scores and flags, the token cost broken down by node (BF-27), the
@@ -9,6 +9,8 @@ Chroma collection per brand (BF-30). `calibrate` compares the hand scores in `ev
 with the judge (BF-37). `eval-summary` reads a promptfoo JSON export and prints the baseline
 against the pipeline (BF-38). It does not call a model. `serve` starts the HTTP API (BF-39):
 `POST /generate` runs this same pipeline and returns the result, including the trace ID.
+`demo` opens the Streamlit page (BF-40). The page posts a pasted brief to that endpoint
+and shows the variants, scores and flags. It does not run the graph.
 
 Logs are separate from that output (BF-26): JSON lines on stderr, each carrying the run ID while
 a run is in progress. They are configured once, when the CLI starts.
@@ -27,7 +29,7 @@ from pydantic_core import to_jsonable_python
 from brandforge import __version__
 from brandforge.brands import BrandLoadError, load_brand
 from brandforge.checkpointing import RunStep, load_run_steps, open_checkpointer
-from brandforge.config import get_settings
+from brandforge.config import get_settings, normalize_api_base_url
 from brandforge.evals.calibration import CalibrationError, format_report, run_calibration
 from brandforge.evals.results import ResultsError, summarize_path, write_summary
 from brandforge.evals.results import format_summary as format_eval_summary
@@ -441,3 +443,48 @@ def serve(
     import uvicorn
 
     uvicorn.run("brandforge.interfaces.api:app", host=bind_host, port=bind_port)
+
+
+@app.command()
+def demo(
+    host: Annotated[
+        str | None,
+        typer.Option(
+            "--host",
+            help="Address to bind. Defaults to BRANDFORGE_DEMO_HOST (127.0.0.1).",
+        ),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option(
+            "--port",
+            min=1,
+            max=65535,
+            help="Port to bind. Defaults to BRANDFORGE_DEMO_PORT (8501).",
+        ),
+    ] = None,
+    api_url: Annotated[
+        str | None,
+        typer.Option(
+            "--api-url",
+            help="API the page calls. Defaults to BRANDFORGE_API_BASE_URL.",
+        ),
+    ] = None,
+) -> None:
+    """Open the demo page. It calls POST /generate, so start `brandforge serve` first."""
+    settings = get_settings()
+    bind_host = settings.demo_host if host is None else host
+    bind_port = settings.demo_port if port is None else port
+    if api_url is None:
+        base_url = settings.api_base_url
+    else:
+        try:
+            base_url = normalize_api_base_url(api_url)
+        except ValueError as exc:
+            _fail(str(exc))
+    # Imported here so `brandforge generate` does not load the demo client.
+    from brandforge.interfaces.demo import launch_demo
+
+    code = launch_demo(host=bind_host, port=bind_port, api_base_url=base_url)
+    if code:
+        raise typer.Exit(code=code)

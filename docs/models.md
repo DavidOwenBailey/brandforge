@@ -15,8 +15,8 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 | **Usage** | Token counts and cost. Supports `+` so it can accumulate across nodes. | LLM gateway | Run state, assembler, cost reporting |
 | **Plan** | The planner's reading of a brief: audience, angle, channels and variants per channel. | Planner (BF-13) | Retriever, writer |
 | **Example** | An approved piece of copy for a brand, retrieved as a style reference. The approved corpus is YAML in `retrieval/examples/` (BF-29). `brandforge index` embeds it into one Chroma collection per brand (BF-30). | Corpus loader (BF-29); the index stores it (BF-30); the retriever selects from the index (BF-31) | Writer |
-| **VariantResult** | One variant in the final result: the variant, its latest critique (or none if it was never scored) and whether it is flagged. | Assembler (BF-18) | CLI, API, evals |
-| **RunResult** | What a finished run hands back: final status, brand and rubric versions, one `VariantResult` per variant, revision count, errors, total usage and the Langfuse `trace_id` (`None` when the run was not traced). `flagged_count` says how many variants are not shown to be on brand. | Assembler (BF-18) | CLI, API, evals |
+| **VariantResult** | One variant in the final result: the variant, its latest critique (or none if it was never scored) and whether it is flagged. | Assembler (BF-18) | CLI, API, demo page, evals |
+| **RunResult** | What a finished run hands back: final status, brand and rubric versions, one `VariantResult` per variant, revision count, errors, total usage and the Langfuse `trace_id` (`None` when the run was not traced). `flagged_count` says how many variants are not shown to be on brand. | Assembler (BF-18) | CLI, API, demo page, evals |
 | **RunError** | A failure recorded in state (node, message and `fatal`), so a run can still end in a defined status. `fatal` is set by the graph's error edges when a node raised and the run was sent to the assembler; a non-fatal error is a warning the run carried on past. | Writer (warnings), graph error guard (BF-22) | Assembler, CLI |
 | **RunState** | The `TypedDict` that is the single source of truth for a run (`result` stays `None` until the assembler fills it; `trace_id` is the run's Langfuse trace ID, or `None` with tracing off (BF-25); `started_at` is when the run began, in epoch seconds, and is what the wall-clock budget runs from). `usage` and `errors` carry reducers (`add_usage`, `add_errors`), so a node returns only its own usage or new errors and the graph accumulates them. `new_run_state` builds the initial state. | Graph entry point | Every node |
 
@@ -30,7 +30,7 @@ Every piece of data that crosses an agent boundary in BrandForge is a Pydantic m
 6. The reviser rewrites only failing variants using each critique's `fixes`.  
 7. The assembler packages the variants, their critiques, flags, errors and usage into a **RunResult** and sets the final status.  
 8. Every gateway call returns a **Usage**. These are summed into the run's total, which is reported with the result and counts against the token budget. Inside a node the gateway checks the run budget (tokens and time) before every model call and stops the node with `BudgetExceededError` once it is used up (BF-23, ADR 0017).  
-9. The CLI prints the **RunResult**. `POST /generate` returns the same model as JSON, including `trace_id` (BF-39, ADR 0032).
+9. The CLI prints the **RunResult**. `POST /generate` returns the same model as JSON, including `trace_id` (BF-39, ADR 0032). The demo page shows that same result: variants, scores and flags (BF-40, ADR 0033).
 
 ### **Why this design**
 
