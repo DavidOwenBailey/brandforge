@@ -1,4 +1,4 @@
-"""Pydantic data contracts for every boundary in BrandForge."""
+"""Pydantic data contracts for every boundary in BrandForge (ADR 0006)."""
 
 import time
 from typing import Annotated, Literal, TypedDict

@@ -27,7 +27,7 @@ model.
 
 - The baseline uses the writer's tier so the comparison is fair (0009).
 - The judge differs from the generator to reduce self-preference bias; the pipeline itself
-  never uses it.
+  never uses it (0005).
 - Switching a tier to another provider (for example `gemini:<model-id>`) is an environment
   change plus its prices, with no agent code touched.
 

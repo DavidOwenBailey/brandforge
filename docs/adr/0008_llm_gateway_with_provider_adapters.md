@@ -95,7 +95,7 @@ if time allows. Adding a provider means an adapter module, a branch in
 - **Known limitation:** response schemas must use lists of items, never free-form
   `dict` fields, because strict structured-output modes cannot express unknown keys
   (for example `Critique.scores`). The core enforces this for every provider. The
-  critic (BF-15) uses a list of `{criterion, score}` items and converts it in code.
+  critic (BF-15) uses a list of `{criterion, score}` items and converts it in code (0006).
   Further per-provider schema limits are handled inside each adapter: Anthropic's
   transform errors become `GatewayConfigError`, and the Gemini adapter reduces the
   schema to the keywords Gemini supports (dropping, for example, `minLength` and

@@ -1,4 +1,4 @@
-"""The critic's reply contract and its conversion into a `Critique` (BF-15).
+"""The critic's reply contract and its conversion into a `Critique` (BF-15, ADR 0006).
 
 Strict structured-output modes cannot express a free-form dict, so the model never returns
 `Critique.scores` directly. It returns a `CriticReply`, a list of `{criterion, score}` items,

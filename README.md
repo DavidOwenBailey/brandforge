@@ -167,7 +167,7 @@ CI has a separate five-case smoke config, `evals/promptfooconfig.smoke.yaml`. Th
 - Run `uv run brandforge calibrate`. When kappa is below 0.60, tune the rubric anchors and run it again.
 - From that run, confirm the pass thresholds (`BRANDFORGE_THRESHOLDS__MIN_OVERALL`, `BRANDFORGE_THRESHOLDS__MIN_PER_CRITERION`) and compare retrieval on and off.
 - Turn the smoke job on by removing `if: false` in `.github/workflows/ci.yml` once the Anthropic secret is set. Fork pull requests stay skipped, because they do not receive the secret.
-- Close the release milestone: ADRs 0005 (judge model), 0006 (Pydantic contracts) and 0007 (local-first) are still to write (BF-43). A clean clone should then follow this README and succeed (BF-44). The v1.0.0 tag and a short demo video are BF-45.
+- A clean clone should follow this README and succeed (BF-44). The v1.0.0 tag and a short demo video are BF-45. The judge, the contracts and the local stores are ADRs [0005](docs/adr/0005_judge_model.md), [0006](docs/adr/0006_pydantic_contracts.md) and [0007](docs/adr/0007_local_first.md).
 - The production path in the architecture is still open: a Postgres checkpointer and pgvector, authentication and per-brand isolation, a review queue for flagged variants, an eval gate on prompt changes, and online measurement of the copy that ships.
 
 ## Layout
