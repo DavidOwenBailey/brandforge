@@ -4,7 +4,7 @@ promptfoo runs one ``llm-rubric`` per row. This module is the grader behind that
 assertion: it scores each variant on its own, through the gateway, on the judge
 tier, against the brand rubric's 1-5 anchors. The row's score is the mean. A low
 score stays a measurement. A row that cannot be scored fails the assertion. The
-rules are in ADR 0029.
+rules are in ADR 0029. The separate judge model is ADR 0005.
 """
 
 import json
