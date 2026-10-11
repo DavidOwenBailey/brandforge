@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, NamedTuple
+from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +47,25 @@ LogLevel = Annotated[
     BeforeValidator(_strip_upper),
 ]
 LogFormat = Annotated[Literal["json", "console"], BeforeValidator(_strip_lower)]
+
+
+def normalize_api_base_url(value: str) -> str:
+    """An http(s) origin the demo page can call, with no path, query or fragment.
+
+    A trailing slash is removed so joining ``/generate`` does not produce a double slash.
+    """
+    text = value.strip().rstrip("/")
+    parsed = urlsplit(text)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("api_base_url must be an http or https URL with a host")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("api_base_url must not include a path")
+    if parsed.query or parsed.fragment:
+        raise ValueError("api_base_url must not include a query or a fragment")
+    return text
+
+
+ApiBaseUrl = Annotated[str, AfterValidator(normalize_api_base_url)]
 
 
 class ModelTiers(BaseModel):
@@ -200,6 +220,12 @@ class Settings(BaseSettings):
     # `brandforge serve` binds here. Set the host only when you mean to expose the port.
     api_host: str = Field(default="127.0.0.1", min_length=1)
     api_port: int = Field(default=8000, ge=1, le=65535)
+    # Demo page (BF-40, ADR 0033). Loopback by default, for the same reason as the API.
+    # `brandforge demo` binds here. `api_base_url` is the origin the page posts briefs to.
+    # A bind host such as 0.0.0.0 is not a URL a client can call, so the two stay separate.
+    demo_host: str = Field(default="127.0.0.1", min_length=1)
+    demo_port: int = Field(default=8501, ge=1, le=65535)
+    api_base_url: ApiBaseUrl = "http://127.0.0.1:8000"
     models: ModelTiers = ModelTiers()
     pricing: Pricing = Pricing()
     budgets: Budgets = Budgets()
